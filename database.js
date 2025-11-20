@@ -7,7 +7,7 @@ class UniversityDB {
     initDatabase() {
         // Initialize or load from localStorage.
         // If any of the core keys are missing or initialization flag absent, re-create the demo data.
-        const requiredKeys = ['students', 'advisors', 'courses', 'assignments', 'enrollments', 'grades', 'courseRequests', 'classrooms', 'bookings'];
+        const requiredKeys = ['students', 'advisors', 'courses', 'assignments', 'enrollments', 'grades', 'courseRequests', 'classrooms', 'bookings', 'admins'];
         let needInit = false;
         for (const key of requiredKeys) {
             if (!localStorage.getItem(key)) {
@@ -28,6 +28,7 @@ class UniversityDB {
         const database = {
             students: this.generateStudents(),
             advisors: this.generateAdvisors(),
+            admins: this.generateAdmins(),
             courses: this.generateCourses(),
             assignments: this.generateAssignments(),
             enrollments: [],
@@ -48,6 +49,7 @@ class UniversityDB {
     saveToStorage(database = this) {
         localStorage.setItem('students', JSON.stringify(database.students));
         localStorage.setItem('advisors', JSON.stringify(database.advisors));
+        localStorage.setItem('admins', JSON.stringify(database.admins));
         localStorage.setItem('courses', JSON.stringify(database.courses));
         localStorage.setItem('assignments', JSON.stringify(database.assignments));
         localStorage.setItem('enrollments', JSON.stringify(database.enrollments));
@@ -71,6 +73,13 @@ class UniversityDB {
         } catch (e) {
             console.error('Failed to parse advisors from localStorage, resetting to [].', e);
             this.advisors = [];
+        }
+
+        try {
+            this.admins = JSON.parse(localStorage.getItem('admins')) || [];
+        } catch (e) {
+            console.error('Failed to parse admins from localStorage, resetting to [].', e);
+            this.admins = [];
         }
 
         try {
@@ -125,9 +134,11 @@ class UniversityDB {
         // If core demo accounts are missing (e.g. previous localStorage had old demo data),
         // re-seed the database so expected demo users exist for testing/login.
         try {
-            const demoEmails = ['ahmed.elsayed@university.edu', 'mona.ali@university.edu', 'dr.elgohary@university.edu'];
-            const foundDemo = (this.students || []).some(s => s.email && demoEmails.includes(String(s.email).toLowerCase()))
-                || (this.advisors || []).some(a => a.email && demoEmails.includes(String(a.email).toLowerCase()));
+            const demoEmails = ['ahmed.elsayed@university.edu', 'mona.ali@university.edu', 'dr.elgohary@university.edu', 'admin@university.edu'];
+            const allUsers = [...(this.students || []), ...(this.advisors || []), ...(this.admins || [])];
+            const foundDemo = demoEmails.some(email => 
+                allUsers.some(u => u.email && u.email.toLowerCase() === email.toLowerCase())
+            );
 
             if (!foundDemo) {
                 console.warn('Demo accounts not found in localStorage — re-seeding demo data.');
@@ -138,6 +149,7 @@ class UniversityDB {
                 try {
                     this.students = JSON.parse(localStorage.getItem('students')) || [];
                     this.advisors = JSON.parse(localStorage.getItem('advisors')) || [];
+                    this.admins = JSON.parse(localStorage.getItem('admins')) || [];
                     this.courses = JSON.parse(localStorage.getItem('courses')) || [];
                     this.assignments = JSON.parse(localStorage.getItem('assignments')) || [];
                     this.enrollments = JSON.parse(localStorage.getItem('enrollments')) || [];
@@ -164,6 +176,20 @@ class UniversityDB {
                 password: 'password123',
                 role: 'advisor',
                 department: 'Computer Science'
+            }
+        ];
+    }
+
+    generateAdmins() {
+        return [
+            {
+                id: 9001,
+                firstName: 'System',
+                lastName: 'Admin',
+                email: 'admin@university.edu',
+                password: 'password123',
+                role: 'admin',
+                department: 'Administration'
             }
         ];
     }
@@ -214,8 +240,8 @@ class UniversityDB {
                     { courseId: 'MA101', year: 2021, term: 'Fall', grade: 85, credits: 4 }
                 ],
                 gpa: null
-            }
-            ,{
+            },
+            {
                 id: 104,
                 firstName: 'Mona',
                 lastName: 'Ali',
@@ -323,15 +349,23 @@ class UniversityDB {
         // Ensure in-memory data matches localStorage before searching (avoids stale state)
         try { this.loadFromStorage(); } catch (e) { /* ignore */ }
         const needle = String(email).trim().toLowerCase();
-        return (this.students || []).find(u => u.email && u.email.toLowerCase() === needle)
-            || (this.advisors || []).find(u => u.email && u.email.toLowerCase() === needle);
+        
+        // Search in all user arrays
+        const allUsers = [
+            ...(this.students || []),
+            ...(this.advisors || []),
+            ...(this.admins || [])
+        ];
+        
+        return allUsers.find(u => u.email && u.email.toLowerCase() === needle);
     }
 
     // Return next available numeric user id (avoid collisions with existing ids)
     getNextUserId() {
         const studentMax = (this.students || []).reduce((m, s) => Math.max(m, Number(s.id) || 0), 0);
         const advisorMax = (this.advisors || []).reduce((m, a) => Math.max(m, Number(a.id) || 0), 0);
-        return Math.max(studentMax, advisorMax) + 1;
+        const adminMax = (this.admins || []).reduce((m, a) => Math.max(m, Number(a.id) || 0), 0);
+        return Math.max(studentMax, advisorMax, adminMax) + 1;
     }
 
     getStudentById(id) {
@@ -340,6 +374,19 @@ class UniversityDB {
     
     getAdvisorById(id) {
         return this.advisors.find(a => a.id === id);
+    }
+
+    getAdminById(id) {
+        return this.admins.find(a => a.id === id);
+    }
+
+    // Return all users combined (students, advisors, admins)
+    getAllUsers() {
+        return [ ...(this.students || []), ...(this.advisors || []), ...(this.admins || []) ];
+    }
+
+    getAllAdmins() {
+        return this.admins || [];
     }
 
     getCourseById(id) {
@@ -555,6 +602,41 @@ class UniversityDB {
         const removed = this.bookings.splice(idx, 1)[0];
         this.saveToStorage();
         return removed;
+    }
+
+    // Delete a user (student/advisor/admin) and related simple records
+    deleteUser(userId) {
+        // Try students
+        const sIdx = (this.students || []).findIndex(s => String(s.id) === String(userId));
+        if (sIdx !== -1) {
+            const removed = this.students.splice(sIdx, 1)[0];
+            // Remove enrollments, courseRequests, bookings, grades associated with this student
+            this.enrollments = (this.enrollments || []).filter(e => String(e.studentId) !== String(userId));
+            this.courseRequests = (this.courseRequests || []).filter(r => String(r.studentId) !== String(userId));
+            this.bookings = (this.bookings || []).filter(b => String(b.bookedBy) !== String(userId));
+            this.grades = (this.grades || []).filter(g => String(g.studentId) !== String(userId));
+            this.saveToStorage();
+            return removed;
+        }
+
+        // Try advisors
+        const aIdx = (this.advisors || []).findIndex(a => String(a.id) === String(userId));
+        if (aIdx !== -1) {
+            const removed = this.advisors.splice(aIdx, 1)[0];
+            // Optionally reassign or remove courses taught by this advisor. For now, just remove advisor.
+            this.saveToStorage();
+            return removed;
+        }
+
+        // Try admins
+        const adIdx = (this.admins || []).findIndex(a => String(a.id) === String(userId));
+        if (adIdx !== -1) {
+            const removed = this.admins.splice(adIdx, 1)[0];
+            this.saveToStorage();
+            return removed;
+        }
+
+        throw new Error('User not found');
     }
 
     // --- Course Registration Access Methods ---
