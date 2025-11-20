@@ -63,6 +63,32 @@ const advisorSaveBookingBtn = document.getElementById('advisor-save-booking-btn'
 const advisorDeleteBookingBtn = document.getElementById('advisor-delete-booking-btn');
 const advisorBookingCloseBtns = document.querySelectorAll('.advisor-booking-close');
 
+// Admin Elements
+const adminAppScreen = document.getElementById('admin-app-screen');
+const adminLogoutBtn = document.getElementById('admin-logout-btn');
+const adminCurrentSectionTitle = document.getElementById('admin-current-section-title');
+const adminNavItems = document.querySelectorAll('#admin-app-screen .nav-menu .nav-item');
+const adminContentSections = document.querySelectorAll('#admin-app-screen .content-section');
+
+// Admin Modal Elements
+const adminEditUserModal = document.getElementById('admin-edit-user-modal');
+const adminEditUserId = document.getElementById('admin-edit-user-id');
+const adminEditFirstname = document.getElementById('admin-edit-firstname');
+const adminEditLastname = document.getElementById('admin-edit-lastname');
+const adminEditEmail = document.getElementById('admin-edit-email');
+const adminEditRole = document.getElementById('admin-edit-role');
+const adminEditMajor = document.getElementById('admin-edit-major');
+const adminEditLevel = document.getElementById('admin-edit-level');
+const adminEditMajorGroup = document.getElementById('admin-edit-major-group');
+const adminEditLevelGroup = document.getElementById('admin-edit-level-group');
+const adminResetPasswordBtn = document.getElementById('admin-reset-password-btn');
+const adminSaveUserBtn = document.getElementById('admin-save-user-btn');
+const adminUserCloseBtns = document.querySelectorAll('.admin-user-close');
+
+// Admin Action Buttons
+const resetAllPasswordsBtn = document.getElementById('reset-all-passwords-btn');
+const clearAllRequestsBtn = document.getElementById('clear-all-requests-btn');
+const resetDatabaseBtn = document.getElementById('reset-database-btn');
 
 // Current user
 let currentUser = null;
@@ -75,7 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const parsed = JSON.parse(savedUser);
             // Validate parsed user has a known role before restoring
-            if (parsed && (parsed.role === 'student' || parsed.role === 'advisor')) {
+            if (parsed && (parsed.role === 'student' || parsed.role === 'advisor' || parsed.role === 'admin')) {
                 currentUser = parsed;
                 showAppScreen();
             } else {
@@ -95,6 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
         authScreen.style.display = 'flex';
         studentAppScreen.style.display = 'none';
         advisorAppScreen.style.display = 'none';
+        if (adminAppScreen) adminAppScreen.style.display = 'none';
     }
 });
 
@@ -141,13 +168,47 @@ function initializeEventListeners() {
             showAdvisorSection(section);
         });
     });
+
+    // Admin Navigation - with null checks
+    if (adminNavItems && adminNavItems.length > 0) {
+        adminNavItems.forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                const section = item.getAttribute('data-section');
+                showAdminSection(section);
+            });
+        });
+    }
+
+    // Admin Logout - with null check
+    if (adminLogoutBtn) {
+        adminLogoutBtn.addEventListener('click', handleLogout);
+    }
+
+    // Admin Modal Handlers - with null checks
+    if (adminUserCloseBtns && adminUserCloseBtns.length > 0) {
+        adminUserCloseBtns.forEach(btn => btn.addEventListener('click', closeAdminEditUserModal));
+    }
+    
+    if (adminSaveUserBtn) {
+        adminSaveUserBtn.addEventListener('click', saveAdminUserChanges);
+    }
+    
+    if (adminResetPasswordBtn) {
+        adminResetPasswordBtn.addEventListener('click', resetUserPassword);
+    }
+
+    // Admin Action Handlers - with null checks
+    if (resetAllPasswordsBtn) resetAllPasswordsBtn.addEventListener('click', resetAllPasswords);
+    if (clearAllRequestsBtn) clearAllRequestsBtn.addEventListener('click', clearAllPendingRequests);
+    if (resetDatabaseBtn) resetDatabaseBtn.addEventListener('click', resetSystemDatabase);
     
     // Course Request Modal Handlers
     modalCloseBtn.addEventListener('click', closeCourseSelectionModal);
     modalCancelBtn.addEventListener('click', closeCourseSelectionModal);
     modalSubmitBtn.addEventListener('click', submitCourseRequest);
     
-    // NEW: Materials Modal Handlers
+    // Materials Modal Handlers
     materialsModalCloseBtns.forEach(btn => btn.addEventListener('click', closeMaterialsModal));
 
     // Classroom search and booking handlers
@@ -260,22 +321,24 @@ function handleRegistration(e) {
     registerMessage.style.color = 'green';
     registerForm.reset();
 }
+
 function handleLogout() {
     currentUser = null;
     localStorage.removeItem('currentUser');
     authScreen.style.display = 'flex';
     studentAppScreen.style.display = 'none';
     advisorAppScreen.style.display = 'none';
+    if (adminAppScreen) adminAppScreen.style.display = 'none';
     document.getElementById('login-message').textContent = 'You have been logged out.';
     document.getElementById('login-message').style.color = 'inherit';
 }
 
 function showAppScreen() {
-    // If currentUser is missing or malformed, show auth screen instead of hiding UI
     if (!currentUser || !currentUser.role) {
         authScreen.style.display = 'flex';
         studentAppScreen.style.display = 'none';
         advisorAppScreen.style.display = 'none';
+        if (adminAppScreen) adminAppScreen.style.display = 'none';
         return;
     }
 
@@ -284,23 +347,27 @@ function showAppScreen() {
     if (currentUser.role === 'student') {
         studentAppScreen.style.display = 'flex';
         advisorAppScreen.style.display = 'none';
+        if (adminAppScreen) adminAppScreen.style.display = 'none';
         
-        // Update user info in sidebar
         document.getElementById('student-name').textContent = `${currentUser.firstName} ${currentUser.lastName}`;
         document.getElementById('student-role').textContent = `${currentUser.major || ''} ${currentUser.level || ''}`;
-
-        // Load default section
         showStudentSection('dashboard');
     } else if (currentUser.role === 'advisor') {
         studentAppScreen.style.display = 'none';
         advisorAppScreen.style.display = 'flex';
+        if (adminAppScreen) adminAppScreen.style.display = 'none';
         
-        // Update user info in sidebar
         document.getElementById('advisor-name').textContent = `${currentUser.firstName} ${currentUser.lastName}`;
         document.getElementById('advisor-role').textContent = 'Academic Advisor';
-
-        // Load default section
         showAdvisorSection('advisor-dashboard');
+    } else if (currentUser.role === 'admin') {
+        studentAppScreen.style.display = 'none';
+        advisorAppScreen.style.display = 'none';
+        if (adminAppScreen) adminAppScreen.style.display = 'flex';
+        
+        document.getElementById('admin-name').textContent = `${currentUser.firstName} ${currentUser.lastName}`;
+        document.getElementById('admin-role').textContent = 'System Administrator';
+        showAdminSection('admin-dashboard');
     }
 }
 
@@ -377,7 +444,7 @@ function showAdvisorSection(sectionName) {
     }
 }
 
-// --- Student Content Rendering (Updated for "View Materials" link) ---
+// --- Student Content Rendering ---
 
 function updateStudentDashboard(studentId) {
     const enrolledCourses = universityDB.getCoursesByStudent(studentId);
@@ -412,7 +479,7 @@ function updateStudentDashboard(studentId) {
             currentCoursesList.appendChild(courseCard);
         });
         
-        // Attach event listeners for the new "View Materials" buttons
+        // Attach event listeners for the "View Materials" buttons
         document.querySelectorAll('.view-materials-btn').forEach(button => {
             button.addEventListener('click', (e) => {
                 const courseId = e.currentTarget.getAttribute('data-course-id');
@@ -423,15 +490,9 @@ function updateStudentDashboard(studentId) {
 
     // Display Upcoming Assignments widget
     displayUpcomingAssignments(studentId);
-}
 
-    // Also populate quick course-browse and request lists inside the dashboard
+    // Populate quick course-browse and request lists inside the dashboard
     try {
-        // Use separate containers so we don't disturb the full Courses page
-        const savedAllCoursesContainer = document.getElementById('all-courses-list');
-        const savedStudentRequestsContainer = document.getElementById('student-requests-list');
-
-        // Temporarily reuse the existing rendering functions but target dashboard containers
         const dashboardCoursesContainer = document.getElementById('dashboard-all-courses-list');
         const dashboardRequestsContainer = document.getElementById('dashboard-student-requests-list');
 
@@ -503,11 +564,12 @@ function updateStudentDashboard(studentId) {
     } catch (e) {
         console.error('Failed to populate dashboard course/request widgets', e);
     }
+}
 
 function displayUpcomingAssignments(studentId, limit = 5) {
     const upcoming = universityDB.getUpcomingAssignments(studentId, limit);
     const container = document.getElementById('upcoming-assignments-list');
-    container.innerHTML = ''; // Clear previous content
+    container.innerHTML = '';
 
     if (upcoming.length === 0) {
         container.innerHTML = '<p class="placeholder-text">No upcoming assignments.</p>';
@@ -548,7 +610,7 @@ function displayUpcomingAssignments(studentId, limit = 5) {
 // Display Available Courses for Registration
 function displayAvailableCourses(studentId) {
     const container = document.getElementById('all-courses-list');
-    container.innerHTML = ''; // Clear previous content
+    container.innerHTML = '';
 
     const availableCourses = universityDB.getAvailableCoursesForStudent(studentId);
 
@@ -589,13 +651,11 @@ function displayAvailableCourses(studentId) {
     });
 }
 
-
 function displayStudentCourseRequests(studentId) {
-    // Ensure we have the freshest data from storage (handles type/visibility issues)
     try { universityDB.loadFromStorage(); } catch (e) { /* ignore */ }
     const requests = universityDB.getCourseRequestsByStudent(studentId);
     const container = document.getElementById('student-requests-list');
-    container.innerHTML = ''; // Clear previous content
+    container.innerHTML = '';
 
     if (requests.length === 0) {
         container.innerHTML = '<p class="placeholder-text">You have no submitted course registration requests.</p>';
@@ -607,11 +667,10 @@ function displayStudentCourseRequests(studentId) {
         
         const requestItem = document.createElement('div');
         requestItem.className = 'request-item';
-        // Adjust border color based on status for better visual feedback
-        let borderColor = 'var(--primary)'; // Default
+        let borderColor = 'var(--primary)';
         if (request.status === 'pending') borderColor = 'var(--warning)';
         if (request.status === 'rejected') borderColor = 'var(--danger)';
-        if (request.status === 'approved') borderColor = 'var(--success)'; // Green for approved
+        if (request.status === 'approved') borderColor = 'var(--success)';
         requestItem.style.borderLeftColor = borderColor;
         
         requestItem.innerHTML = `
@@ -633,16 +692,77 @@ function displayStudentCourseRequests(studentId) {
 function openCourseSelectionModal(courseId) {
     const course = universityDB.getCourseById(courseId);
     
-    // Set the course ID in the hidden input
     modalCourseIdInput.value = courseId;
-    
-    // Display the course info
     modalCourseInfoP.innerHTML = `You are requesting to register for: <strong>${course.title} (${course.id})</strong>`;
-    
-    // Clear previous reason
     requestReasonTextarea.value = '';
 
     courseSelectionModal.style.display = 'flex';
+}
+
+function closeCourseSelectionModal() {
+    courseSelectionModal.style.display = 'none';
+}
+
+function submitCourseRequest() {
+    const courseId = modalCourseIdInput.value;
+    const reason = requestReasonTextarea.value.trim();
+
+    if (!courseId) {
+        alert('Error: No course selected.');
+        return;
+    }
+
+    const request = {
+        studentId: currentUser.id,
+        courseId: courseId,
+        reason: reason || 'No reason provided.',
+        dateSubmitted: new Date().toISOString().split('T')[0],
+        status: 'pending' 
+    };
+
+    try {
+        universityDB.createCourseRequest(request);
+        closeCourseSelectionModal();
+        alert('Course registration request submitted successfully! Please check the Course Requests tab for status updates.');
+        
+        displayAvailableCourses(currentUser.id);
+        displayStudentCourseRequests(currentUser.id);
+    } catch (error) {
+        alert(`Error: ${error.message}`);
+    }
+}
+
+// --- Materials Modal Functions ---
+
+function openMaterialsModal(courseId) {
+    const course = universityDB.getCourseById(courseId);
+    
+    if (!course || !course.materials) return;
+
+    materialsModalTitle.textContent = `${course.id}: ${course.title} Materials`;
+    
+    const instructor = universityDB.getAdvisorById(course.instructorId);
+    materialsModalCourseInfo.textContent = `Instructor: ${instructor ? instructor.firstName + ' ' + instructor.lastName : 'Staff'}`;
+    
+    courseMaterialsList.innerHTML = '';
+    
+    course.materials.forEach(material => {
+        const item = document.createElement('a');
+        item.className = 'material-item';
+        item.href = material.link;
+        item.target = '_blank';
+        item.innerHTML = `
+            <i class="fas fa-${material.icon || 'link'}"></i> 
+            <span>${material.title} (${material.type.toUpperCase()})</span>
+        `;
+        courseMaterialsList.appendChild(item);
+    });
+    
+    materialsModal.style.display = 'flex';
+}
+
+function closeMaterialsModal() {
+    materialsModal.style.display = 'none';
 }
 
 // --- Classroom Booking UI ---
@@ -656,7 +776,6 @@ function displayClassrooms(studentId) {
 
     classroomsList.innerHTML = '';
 
-    // Get available classrooms using the new DB API
     const available = universityDB.getAvailableClassrooms(date, startTime, endTime);
 
     if (!available || available.length === 0) {
@@ -680,7 +799,6 @@ function displayClassrooms(studentId) {
         classroomsList.appendChild(card);
     });
 
-    // Attach listeners to book buttons
     document.querySelectorAll('.book-classroom-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const roomId = e.currentTarget.getAttribute('data-room-id');
@@ -688,7 +806,6 @@ function displayClassrooms(studentId) {
         });
     });
 
-    // Also render the student's existing bookings on the same page
     if (currentUser && currentUser.role === 'student') {
         displayStudentBookings(currentUser.id);
     }
@@ -698,7 +815,6 @@ function openBookingModal(classroomId) {
     const room = universityDB.getAllClassrooms().find(r => r.id === classroomId);
     if (!room) return;
 
-    // Prefill modal with selected date/time if available
     bookingClassroomIdInput.value = classroomId;
     bookingClassroomInfo.textContent = `${room.id}: ${room.name} — ${room.location}`;
     bookingPurposeInput.value = '';
@@ -739,15 +855,12 @@ function submitClassroomBooking() {
         universityDB.createBooking(booking);
         alert('Booking confirmed!');
         closeBookingModal();
-
-        // Refresh list to reflect that room is no longer available
         displayClassrooms(currentUser.id);
     } catch (err) {
         alert('Booking failed: ' + err.message);
     }
 }
 
-// Display bookings for the logged-in student and allow cancelling
 function displayStudentBookings(studentId) {
     const container = document.getElementById('student-bookings-list');
     if (!container) return;
@@ -781,18 +894,15 @@ function displayStudentBookings(studentId) {
         container.appendChild(item);
     });
 
-    // Attach cancel handlers
     document.querySelectorAll('.cancel-booking-btn').forEach(btn => btn.addEventListener('click', (e) => {
         const id = parseInt(e.currentTarget.getAttribute('data-booking-id'));
         if (!confirm('Cancel this booking?')) return;
         try {
-            // Only allow delete if booking belongs to current user
             const booking = universityDB.getAllBookings().find(x => x.id === id);
             if (!booking) { alert('Booking not found'); return; }
             if (booking.bookedBy !== currentUser.id) { alert('You may only cancel your own bookings.'); return; }
             universityDB.deleteBooking(id);
             alert('Booking cancelled.');
-            // Refresh both bookings list and available rooms
             displayStudentBookings(currentUser.id);
             displayClassrooms(currentUser.id);
             updateStudentDashboard(currentUser.id);
@@ -800,89 +910,16 @@ function displayStudentBookings(studentId) {
     }));
 }
 
-function closeCourseSelectionModal() {
-    courseSelectionModal.style.display = 'none';
-}
-
-function submitCourseRequest() {
-    const courseId = modalCourseIdInput.value;
-    const reason = requestReasonTextarea.value.trim();
-
-    if (!courseId) {
-        alert('Error: No course selected.');
-        return;
-    }
-
-    const request = {
-        studentId: currentUser.id,
-        courseId: courseId,
-        reason: reason || 'No reason provided.',
-        dateSubmitted: new Date().toISOString().split('T')[0],
-        status: 'pending' 
-    };
-
-    try {
-        universityDB.createCourseRequest(request);
-        closeCourseSelectionModal();
-        alert('Course registration request submitted successfully! Please check the Course Requests tab for status updates.');
-        
-        // Refresh the course browsing list to remove the newly requested course
-        displayAvailableCourses(currentUser.id);
-        // Refresh the student's request list immediately (requests are now shown on the Courses page)
-        displayStudentCourseRequests(currentUser.id);
-
-    } catch (error) {
-        alert(`Error: ${error.message}`);
-    }
-}
-
-// --- NEW Materials Modal Functions ---
-
-function openMaterialsModal(courseId) {
-    const course = universityDB.getCourseById(courseId);
-    
-    if (!course || !course.materials) return;
-
-    materialsModalTitle.textContent = `${course.id}: ${course.title} Materials`;
-    
-    // Get instructor info
-    const instructor = universityDB.getAdvisorById(course.instructorId);
-    materialsModalCourseInfo.textContent = `Instructor: ${instructor ? instructor.firstName + ' ' + instructor.lastName : 'Staff'}`;
-    
-    courseMaterialsList.innerHTML = '';
-    
-    course.materials.forEach(material => {
-        const item = document.createElement('a');
-        item.className = 'material-item';
-        item.href = material.link;
-        item.target = '_blank';
-        item.innerHTML = `
-            <i class="fas fa-${material.icon || 'link'}"></i> 
-            <span>${material.title} (${material.type.toUpperCase()})</span>
-        `;
-        courseMaterialsList.appendChild(item);
-    });
-    
-    materialsModal.style.display = 'flex';
-}
-
-function closeMaterialsModal() {
-    materialsModal.style.display = 'none';
-}
-
-// --- Advisor Content Rendering (Updated with Approval Logic) ---
+// --- Advisor Content Rendering ---
 
 function updateAdvisorDashboard() {
-    // Reload latest data from storage in case another user modified it
     try { universityDB.loadFromStorage(); } catch (e) { /* ignore */ }
-    // Recalculate pending requests count from the updated database
     const pendingCount = universityDB.getAllPendingCourseRequests().length;
     const totalStudents = universityDB.getAllStudents().length;
     const bookingsCount = (universityDB.getAllBookings() || []).length;
 
     if (document.getElementById('advisor-pending-requests-count'))
         document.getElementById('advisor-pending-requests-count').textContent = pendingCount;
-    // update bookings stat if present
     const bookingsCountEl = document.getElementById('advisor-bookings-count');
     if (bookingsCountEl) bookingsCountEl.textContent = bookingsCount;
     if (document.getElementById('advisor-total-students-count'))
@@ -890,7 +927,6 @@ function updateAdvisorDashboard() {
 }
 
 function displayAdvisorPendingRequests() {
-    // Load latest storage before showing requests (in case other users added requests)
     try { universityDB.loadFromStorage(); } catch (e) { /* ignore */ }
     const requests = universityDB.getAllPendingCourseRequests();
     const container = document.getElementById('advisor-requests-list');
@@ -907,9 +943,8 @@ function displayAdvisorPendingRequests() {
         
         const requestItem = document.createElement('div');
         requestItem.className = 'request-item advisor-request-item';
-        requestItem.style.borderLeftColor = 'var(--warning)'; // Pending color
-        // Compute GPA dynamically from history so advisors see accurate value
-        const computedGpa = universityDB.getStudentGPA(student.id || studentId) || 0;
+        requestItem.style.borderLeftColor = 'var(--warning)';
+        const computedGpa = universityDB.getStudentGPA(student.id) || 0;
         
         requestItem.innerHTML = `
             <div class="request-header">
@@ -928,9 +963,37 @@ function displayAdvisorPendingRequests() {
         container.appendChild(requestItem);
     });
     
-    // Attach event listeners for advisor actions
     document.querySelectorAll('.approve-btn').forEach(btn => btn.addEventListener('click', handleAdvisorAction));
     document.querySelectorAll('.reject-btn').forEach(btn => btn.addEventListener('click', handleAdvisorAction));
+}
+
+function handleAdvisorAction(e) {
+    const requestId = parseInt(e.currentTarget.getAttribute('data-request-id'));
+    const action = e.currentTarget.classList.contains('approve-btn') ? 'approve' : 'reject';
+
+    try { universityDB.loadFromStorage(); } catch (err) { /* ignore */ }
+
+    const request = (universityDB.courseRequests || []).find(r => r.id === requestId);
+    if (!request) return alert('Request not found. It may have been processed already.');
+    const student = universityDB.getStudentById(request.studentId) || { firstName: 'Student', lastName: '' };
+
+    if (!confirm(`Are you sure you want to ${action} this course request for ${student.firstName} ${student.lastName}?`)) return;
+
+    try {
+        if (action === 'approve') {
+            universityDB.approveCourseRequest(requestId);
+            alert(`Request ${requestId} approved! ${student.firstName} ${student.lastName} has been enrolled.`);
+        } else {
+            universityDB.rejectCourseRequest(requestId);
+            alert(`Request ${requestId} rejected.`);
+        }
+
+        try { universityDB.loadFromStorage(); } catch (err) { /* ignore */ }
+        displayAdvisorPendingRequests();
+        updateAdvisorDashboard();
+    } catch (error) {
+        alert(`Action failed: ${error.message}`);
+    }
 }
 
 // --- Advisor Booking Management ---
@@ -970,7 +1033,6 @@ function displayAdvisorBookings() {
         advisorBookingsList.appendChild(item);
     });
 
-    // Attach handlers
     document.querySelectorAll('.advisor-edit-booking-btn').forEach(btn => btn.addEventListener('click', (e) => {
         const id = parseInt(e.currentTarget.getAttribute('data-booking-id'));
         openAdvisorEditBookingModal(id);
@@ -1054,60 +1116,564 @@ function handleAdvisorDeleteBooking() {
     } catch (err) { alert('Delete failed: ' + err.message); }
 }
 
-function handleAdvisorAction(e) {
-    const requestId = parseInt(e.currentTarget.getAttribute('data-request-id'));
-    const action = e.currentTarget.classList.contains('approve-btn') ? 'approve' : 'reject';
+function displayAdvisorStudents(levelFilter) {
+    const container = document.getElementById('advisor-students-list');
+    container.innerHTML = '';
 
-    // Ensure we are working with the freshest data
-    try { universityDB.loadFromStorage(); } catch (err) { /* ignore */ }
+    try { universityDB.loadFromStorage(); } catch (e) { /* ignore */ }
 
-    const request = (universityDB.courseRequests || []).find(r => r.id === requestId);
-    if (!request) return alert('Request not found. It may have been processed already.');
-    const student = universityDB.getStudentById(request.studentId) || { firstName: 'Student', lastName: '' };
+    const students = universityDB.getAllStudents() || [];
+    if (students.length === 0) {
+        container.innerHTML = '<p class="placeholder-text">No students found.</p>';
+    } else {
+        students.forEach(student => {
+            const studentItem = document.createElement('div');
+            studentItem.className = 'student-item';
+            const computedGpa = universityDB.getStudentGPA(student.id) || 0;
+            studentItem.innerHTML = `
+                <div class="student-info">
+                    <h4>${student.firstName} ${student.lastName} (${student.id})</h4>
+                    <div class="student-meta">Major: ${student.major} | Level: ${student.level} | GPA: ${computedGpa.toFixed(2)}</div>
+                </div>
+                <div class="student-actions">
+                    <button class="btn btn-primary student-details-btn" data-student-id="${student.id}">View Details</button>
+                    ${currentUser && currentUser.role === 'admin' ? `<button class="btn btn-danger delete-user-btn" data-user-id="${student.id}">Delete User</button>` : ''}
+                </div>
+            `;
+            container.appendChild(studentItem);
+        });
+    }
 
-    if (!confirm(`Are you sure you want to ${action} this course request for ${student.firstName} ${student.lastName}?`)) return;
+    if (currentUser && currentUser.role === 'admin') {
+        const header = document.createElement('h3');
+        header.textContent = 'Advisors & Admins';
+        header.style.marginTop = '16px';
+        container.appendChild(header);
 
-    try {
-        if (action === 'approve') {
-            universityDB.approveCourseRequest(requestId);
-            alert(`Request ${requestId} approved! ${student.firstName} ${student.lastName} has been enrolled.`);
+        const advisory = [ ...(universityDB.advisors || []), ...(universityDB.getAllAdmins ? universityDB.getAllAdmins() : (universityDB.admins || [])) ];
+        if (advisory.length === 0) {
+            const p = document.createElement('p');
+            p.className = 'placeholder-text';
+            p.textContent = 'No advisors or admins found.';
+            container.appendChild(p);
         } else {
-            universityDB.rejectCourseRequest(requestId);
-            alert(`Request ${requestId} rejected.`);
+            advisory.forEach(a => {
+                const item = document.createElement('div');
+                item.className = 'student-item';
+                const displayRole = a.role === 'admin' ? 'Admin' : 'Advisor';
+                item.innerHTML = `
+                    <div class="student-info">
+                        <h4>${a.firstName} ${a.lastName} (${a.id})</h4>
+                        <div class="student-meta">${displayRole} | ${a.department || ''}</div>
+                    </div>
+                    <div class="student-actions">
+                        <button class="btn btn-primary student-details-btn" data-student-id="${a.id}">View Details</button>
+                        <button class="btn btn-danger delete-user-btn" data-user-id="${a.id}">Delete User</button>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
         }
+    }
 
-        // Reload storage and refresh the advisor sections
-        try { universityDB.loadFromStorage(); } catch (err) { /* ignore */ }
-        displayAdvisorPendingRequests();
-        updateAdvisorDashboard();
-    } catch (error) {
-        alert(`Action failed: ${error.message}`);
+    document.querySelectorAll('.delete-user-btn').forEach(btn => btn.addEventListener('click', (e) => {
+        const id = e.currentTarget.getAttribute('data-user-id');
+        if (!confirm('Delete this user and their related data? This action cannot be undone.')) return;
+        try {
+            universityDB.deleteUser(id);
+            alert('User deleted.');
+            displayAdvisorStudents(levelFilter);
+            updateAdvisorDashboard();
+        } catch (err) {
+            alert('Delete failed: ' + err.message);
+        }
+    }));
+}
+
+// --- Admin Section Management ---
+function showAdminSection(sectionName) {
+    if (!adminNavItems || adminNavItems.length === 0) return;
+    
+    adminNavItems.forEach(item => {
+        item.classList.remove('active');
+        if (item.getAttribute('data-section') === sectionName) {
+            item.classList.add('active');
+            adminCurrentSectionTitle.textContent = item.textContent.trim();
+        }
+    });
+
+    if (!adminContentSections || adminContentSections.length === 0) return;
+    
+    adminContentSections.forEach(section => {
+        section.style.display = 'none';
+    });
+    
+    const sectionElement = document.getElementById(`${sectionName}-section`);
+    if (sectionElement) {
+        sectionElement.style.display = 'block';
+    }
+
+    if (sectionName === 'admin-dashboard') {
+        updateAdminDashboard();
+    } else if (sectionName === 'user-management') {
+        displayAllUsers();
+    } else if (sectionName === 'system-management') {
+        // System management UI is static
+    } else if (sectionName === 'all-bookings') {
+        displayAllBookings();
+    } else if (sectionName === 'all-requests') {
+        displayAllRequests();
     }
 }
 
+// --- Admin Dashboard ---
+function updateAdminDashboard() {
+    const students = universityDB.getAllStudents();
+    const advisors = universityDB.advisors || [];
+    const admins = universityDB.admins || [];
+    const bookings = universityDB.getAllBookings();
+    const pendingRequests = universityDB.getAllPendingCourseRequests();
 
-function displayAdvisorStudents(levelFilter) {
-    const students = universityDB.getAllStudents(); 
-    const container = document.getElementById('advisor-students-list');
-    container.innerHTML = ''; 
+    if (document.getElementById('admin-total-students'))
+        document.getElementById('admin-total-students').textContent = students.length;
+    if (document.getElementById('admin-total-advisors'))
+        document.getElementById('admin-total-advisors').textContent = advisors.length;
+    if (document.getElementById('admin-active-bookings'))
+        document.getElementById('admin-active-bookings').textContent = bookings.length;
+    if (document.getElementById('admin-pending-requests'))
+        document.getElementById('admin-pending-requests').textContent = pendingRequests.length;
 
-    if (students.length === 0) {
-        container.innerHTML = '<p class="placeholder-text">No students found.</p>';
+    displayRecentActivity();
+}
+
+function displayRecentActivity() {
+    const container = document.getElementById('admin-recent-activity');
+    if (!container) return;
+    
+    container.innerHTML = '';
+
+    const recentRequests = universityDB.courseRequests
+        .sort((a, b) => new Date(b.dateSubmitted) - new Date(a.dateSubmitted))
+        .slice(0, 5);
+
+    if (recentRequests.length === 0) {
+        container.innerHTML = '<p class="placeholder-text">No recent activity to display.</p>';
         return;
     }
 
-    students.forEach(student => {
-        const studentItem = document.createElement('div');
-        studentItem.className = 'student-item';
-        // Compute GPA dynamically in case stored `gpa` is null or outdated
-        const computedGpa = universityDB.getStudentGPA(student.id) || 0;
-        studentItem.innerHTML = `
-            <div class="student-info">
-                <h4>${student.firstName} ${student.lastName} (${student.id})</h4>
-                <div class="student-meta">Major: ${student.major} | Level: ${student.level} | GPA: ${computedGpa.toFixed(2)}</div>
+    recentRequests.forEach(request => {
+        const student = universityDB.getStudentById(request.studentId);
+        const course = universityDB.getCourseById(request.courseId);
+        
+        if (!student || !course) return;
+
+        const item = document.createElement('div');
+        item.className = 'request-item';
+        item.innerHTML = `
+            <div class="request-header">
+                <div class="request-info">
+                    <h4>${student.firstName} ${student.lastName}</h4>
+                    <div class="request-meta">Requested: ${course.id} - ${course.title}</div>
+                </div>
+                <span class="request-status status-${request.status}">${request.status.toUpperCase()}</span>
             </div>
-            <button class="btn btn-primary student-details-btn" data-student-id="${student.id}">View Details</button>
+            <p class="request-reason"><strong>Date:</strong> ${request.dateSubmitted}</p>
         `;
-        container.appendChild(studentItem);
+        container.appendChild(item);
     });
 }
+
+// --- User Management ---
+function displayAllUsers() {
+    const container = document.getElementById('admin-users-list');
+    if (!container) return;
+    
+    const roleFilter = document.getElementById('user-role-filter') ? document.getElementById('user-role-filter').value : 'all';
+    const searchTerm = document.getElementById('user-search') ? document.getElementById('user-search').value.toLowerCase() : '';
+    
+    container.innerHTML = '';
+
+    const allUsers = [
+        ...(universityDB.getAllStudents() || []).map(u => ({ ...u, type: 'student' })),
+        ...(universityDB.advisors || []).map(u => ({ ...u, type: 'advisor' })),
+        ...(universityDB.admins || []).map(u => ({ ...u, type: 'admin' }))
+    ];
+
+    let filteredUsers = allUsers;
+
+    if (roleFilter !== 'all') {
+        filteredUsers = filteredUsers.filter(user => user.type === roleFilter);
+    }
+
+    if (searchTerm) {
+        filteredUsers = filteredUsers.filter(user => 
+            user.firstName.toLowerCase().includes(searchTerm) ||
+            user.lastName.toLowerCase().includes(searchTerm) ||
+            user.email.toLowerCase().includes(searchTerm)
+        );
+    }
+
+    if (filteredUsers.length === 0) {
+        container.innerHTML = '<p class="placeholder-text">No users found.</p>';
+        return;
+    }
+
+    filteredUsers.forEach(user => {
+        const item = document.createElement('div');
+        item.className = `user-item ${user.type}`;
+        
+        let roleDisplay = user.type.charAt(0).toUpperCase() + user.type.slice(1);
+        if (user.type === 'student') {
+            roleDisplay += ` • ${user.major || 'Undeclared'} • ${user.level || 'N/A'}`;
+        }
+
+        item.innerHTML = `
+            <div class="user-info">
+                <h4>${user.firstName} ${user.lastName} 
+                    <span class="role-badge role-${user.type}">${user.type.toUpperCase()}</span>
+                </h4>
+                <div class="user-meta">
+                    ID: ${user.id} | Email: ${user.email} | ${roleDisplay}
+                </div>
+            </div>
+            <div class="user-actions">
+                <button class="btn btn-primary edit-user-btn" data-user-id="${user.id}">Edit</button>
+                <button class="btn btn-warning reset-password-btn" data-user-id="${user.id}">Reset Password</button>
+                ${user.id !== currentUser.id ? `<button class="btn btn-danger delete-user-btn" data-user-id="${user.id}">Delete</button>` : ''}
+            </div>
+        `;
+        container.appendChild(item);
+    });
+
+    document.querySelectorAll('.edit-user-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const userId = parseInt(e.target.getAttribute('data-user-id'));
+            openAdminEditUserModal(userId);
+        });
+    });
+
+    document.querySelectorAll('.reset-password-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const userId = parseInt(e.target.getAttribute('data-user-id'));
+            if (confirm('Reset this user\'s password to "0000"?')) {
+                resetSingleUserPassword(userId);
+            }
+        });
+    });
+
+    document.querySelectorAll('.delete-user-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const userId = parseInt(e.target.getAttribute('data-user-id'));
+            if (confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
+                try {
+                    universityDB.deleteUser(userId);
+                    displayAllUsers();
+                    updateAdminDashboard();
+                    alert('User deleted successfully.');
+                } catch (err) {
+                    alert('Error deleting user: ' + err.message);
+                }
+            }
+        });
+    });
+}
+
+// --- Admin User Modal Functions ---
+function openAdminEditUserModal(userId) {
+    const user = universityDB.getAllUsers().find(u => u.id === userId);
+    if (!user) return;
+
+    adminEditUserId.value = user.id;
+    adminEditFirstname.value = user.firstName || '';
+    adminEditLastname.value = user.lastName || '';
+    adminEditEmail.value = user.email || '';
+    adminEditRole.value = user.type || user.role;
+
+    if (user.type === 'student' || user.role === 'student') {
+        adminEditMajorGroup.style.display = 'block';
+        adminEditLevelGroup.style.display = 'block';
+        adminEditMajor.value = user.major || '';
+        adminEditLevel.value = user.level || '';
+    } else {
+        adminEditMajorGroup.style.display = 'none';
+        adminEditLevelGroup.style.display = 'none';
+    }
+
+    adminEditUserModal.style.display = 'flex';
+}
+
+function closeAdminEditUserModal() {
+    adminEditUserModal.style.display = 'none';
+}
+
+function saveAdminUserChanges() {
+    const userId = parseInt(adminEditUserId.value);
+    const user = universityDB.getAllUsers().find(u => u.id === userId);
+    
+    if (!user) {
+        alert('User not found.');
+        return;
+    }
+
+    const newData = {
+        firstName: adminEditFirstname.value.trim(),
+        lastName: adminEditLastname.value.trim(),
+        email: adminEditEmail.value.trim(),
+        role: adminEditRole.value
+    };
+
+    if (adminEditRole.value === 'student') {
+        newData.major = adminEditMajor.value.trim();
+        newData.level = adminEditLevel.value.trim();
+    }
+
+    try {
+        let userArray;
+        if (user.type === 'student' || user.role === 'student') {
+            userArray = universityDB.students;
+        } else if (user.type === 'advisor' || user.role === 'advisor') {
+            userArray = universityDB.advisors;
+        } else if (user.type === 'admin' || user.role === 'admin') {
+            userArray = universityDB.admins;
+        }
+
+        if (userArray) {
+            const userIndex = userArray.findIndex(u => u.id === userId);
+            if (userIndex !== -1) {
+                Object.assign(userArray[userIndex], newData);
+                universityDB.saveToStorage();
+                alert('User updated successfully.');
+                closeAdminEditUserModal();
+                displayAllUsers();
+            }
+        }
+    } catch (err) {
+        alert('Error updating user: ' + err.message);
+    }
+}
+
+function resetUserPassword() {
+    const userId = parseInt(adminEditUserId.value);
+    resetSingleUserPassword(userId);
+    closeAdminEditUserModal();
+}
+
+function resetSingleUserPassword(userId) {
+    try {
+        const user = universityDB.getAllUsers().find(u => u.id === userId);
+        if (!user) {
+            alert('User not found.');
+            return;
+        }
+
+        let userArray;
+        if (user.type === 'student' || user.role === 'student') {
+            userArray = universityDB.students;
+        } else if (user.type === 'advisor' || user.role === 'advisor') {
+            userArray = universityDB.advisors;
+        } else if (user.type === 'admin' || user.role === 'admin') {
+            userArray = universityDB.admins;
+        }
+
+        if (userArray) {
+            const userIndex = userArray.findIndex(u => u.id === userId);
+            if (userIndex !== -1) {
+                userArray[userIndex].password = '0000';
+                universityDB.saveToStorage();
+                alert('Password reset to "0000" for user: ' + user.firstName + ' ' + user.lastName);
+                displayAllUsers();
+            }
+        }
+    } catch (err) {
+        alert('Error resetting password: ' + err.message);
+    }
+}
+
+// --- Admin System Management Functions ---
+function resetAllPasswords() {
+    if (!confirm('This will reset ALL user passwords to "0000". Are you sure?')) return;
+    
+    try {
+        universityDB.students.forEach(student => {
+            student.password = '0000';
+        });
+
+        universityDB.advisors.forEach(advisor => {
+            advisor.password = '0000';
+        });
+
+        universityDB.admins.forEach(admin => {
+            if (admin.id !== currentUser.id) {
+                admin.password = '0000';
+            }
+        });
+
+        universityDB.saveToStorage();
+        alert('All user passwords have been reset to "0000".');
+    } catch (err) {
+        alert('Error resetting passwords: ' + err.message);
+    }
+}
+
+function clearAllPendingRequests() {
+    if (!confirm('This will remove ALL pending course requests. Are you sure?')) return;
+    
+    try {
+        universityDB.courseRequests = universityDB.courseRequests.filter(req => req.status !== 'pending');
+        universityDB.saveToStorage();
+        alert('All pending course requests have been cleared.');
+        updateAdminDashboard();
+        displayAllRequests();
+    } catch (err) {
+        alert('Error clearing requests: ' + err.message);
+    }
+}
+
+function resetSystemDatabase() {
+    if (!confirm('This will reset ALL system data to default demo state. This action cannot be undone. Are you sure?')) return;
+    
+    try {
+        localStorage.removeItem('universityDB_initialized');
+        universityDB.initializeData();
+        universityDB.loadFromStorage();
+        alert('System data has been reset to default demo state.');
+        updateAdminDashboard();
+        displayAllUsers();
+    } catch (err) {
+        alert('Error resetting system: ' + err.message);
+    }
+}
+
+// --- Display All Bookings ---
+function displayAllBookings() {
+    const container = document.getElementById('admin-bookings-list');
+    if (!container) return;
+    
+    container.innerHTML = '';
+
+    const bookings = universityDB.getAllBookings();
+    
+    if (bookings.length === 0) {
+        container.innerHTML = '<p class="placeholder-text">No bookings found.</p>';
+        return;
+    }
+
+    bookings.forEach(booking => {
+        const student = universityDB.getStudentById(booking.bookedBy);
+        const room = universityDB.getAllClassrooms().find(r => r.id === booking.classroomId);
+        
+        if (!student || !room) return;
+
+        const item = document.createElement('div');
+        item.className = 'request-item';
+        item.innerHTML = `
+            <div class="request-header">
+                <div class="request-info">
+                    <h4>${room.name} (${room.id})</h4>
+                    <div class="request-meta">
+                        Booked by: ${student.firstName} ${student.lastName} (${student.id}) | 
+                        Date: ${booking.date} | Time: ${booking.startTime}-${booking.endTime}
+                    </div>
+                </div>
+                <span class="request-status status-${booking.status || 'pending'}">${(booking.status || 'pending').toUpperCase()}</span>
+            </div>
+            <p class="request-reason"><strong>Purpose:</strong> ${booking.purpose || 'N/A'}</p>
+            <div class="request-actions">
+                <button class="btn btn-danger delete-booking-btn" data-booking-id="${booking.id}">Delete</button>
+            </div>
+        `;
+        container.appendChild(item);
+    });
+
+    document.querySelectorAll('.delete-booking-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const bookingId = parseInt(e.target.getAttribute('data-booking-id'));
+            if (confirm('Delete this booking?')) {
+                try {
+                    universityDB.deleteBooking(bookingId);
+                    displayAllBookings();
+                    updateAdminDashboard();
+                    alert('Booking deleted successfully.');
+                } catch (err) {
+                    alert('Error deleting booking: ' + err.message);
+                }
+            }
+        });
+    });
+}
+
+// --- Display All Requests ---
+function displayAllRequests() {
+    const container = document.getElementById('admin-requests-list');
+    if (!container) return;
+    
+    container.innerHTML = '';
+
+    const requests = universityDB.courseRequests;
+    
+    if (requests.length === 0) {
+        container.innerHTML = '<p class="placeholder-text">No course requests found.</p>';
+        return;
+    }
+
+    requests.forEach(request => {
+        const student = universityDB.getStudentById(request.studentId);
+        const course = universityDB.getCourseById(request.courseId);
+        
+        if (!student || !course) return;
+
+        const item = document.createElement('div');
+        item.className = 'request-item';
+        item.innerHTML = `
+            <div class="request-header">
+                <div class="request-info">
+                    <h4>${course.id}: ${course.title}</h4>
+                    <div class="request-meta">
+                        Student: ${student.firstName} ${student.lastName} (${student.id}) | 
+                        Submitted: ${request.dateSubmitted}
+                    </div>
+                </div>
+                <span class="request-status status-${request.status}">${request.status.toUpperCase()}</span>
+            </div>
+            <p class="request-reason"><strong>Reason:</strong> ${request.reason || 'N/A'}</p>
+            <div class="request-actions">
+                <button class="btn btn-danger delete-request-btn" data-request-id="${request.id}">Delete</button>
+            </div>
+        `;
+        container.appendChild(item);
+    });
+
+    document.querySelectorAll('.delete-request-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const requestId = parseInt(e.target.getAttribute('data-request-id'));
+            if (confirm('Delete this course request?')) {
+                try {
+                    const index = universityDB.courseRequests.findIndex(r => r.id === requestId);
+                    if (index !== -1) {
+                        universityDB.courseRequests.splice(index, 1);
+                        universityDB.saveToStorage();
+                        displayAllRequests();
+                        updateAdminDashboard();
+                        alert('Request deleted successfully.');
+                    }
+                } catch (err) {
+                    alert('Error deleting request: ' + err.message);
+                }
+            }
+        });
+    });
+}
+
+// Add event listeners for user filter and search
+document.addEventListener('DOMContentLoaded', () => {
+    const userRoleFilter = document.getElementById('user-role-filter');
+    const userSearch = document.getElementById('user-search');
+    
+    if (userRoleFilter) {
+        userRoleFilter.addEventListener('change', displayAllUsers);
+    }
+    
+    if (userSearch) {
+        userSearch.addEventListener('input', displayAllUsers);
+    }
+});
