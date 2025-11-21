@@ -37,6 +37,14 @@ const classroomEndInput = document.getElementById('classroom-end');
 const searchClassroomsBtn = document.getElementById('search-classrooms-btn');
 const classroomsList = document.getElementById('classrooms-list');
 
+// Advisor Classroom elements
+const advisorClassroomDateInput = document.getElementById('advisor-classroom-date');
+const advisorClassroomStartInput = document.getElementById('advisor-classroom-start');
+const advisorClassroomEndInput = document.getElementById('advisor-classroom-end');
+const advisorSearchClassroomsBtn = document.getElementById('advisor-search-classrooms-btn');
+const advisorClassroomsList = document.getElementById('advisor-classrooms-list');
+const advisorMyBookingsList = document.getElementById('advisor-my-bookings-list');
+
 // Booking modal elements
 const classroomBookingModal = document.getElementById('classroom-booking-modal');
 const bookingModalTitle = document.getElementById('booking-modal-title');
@@ -211,7 +219,7 @@ function initializeEventListeners() {
     // Materials Modal Handlers
     materialsModalCloseBtns.forEach(btn => btn.addEventListener('click', closeMaterialsModal));
 
-    // Classroom search and booking handlers
+    // Student Classroom search and booking handlers
     if (searchClassroomsBtn) {
         searchClassroomsBtn.addEventListener('click', (e) => {
             e.preventDefault();
@@ -220,6 +228,18 @@ function initializeEventListeners() {
                 return;
             }
             displayClassrooms(currentUser.id);
+        });
+    }
+
+    // Advisor Classroom search and booking handlers
+    if (advisorSearchClassroomsBtn) {
+        advisorSearchClassroomsBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (!currentUser) {
+                alert('Please login to search and book classrooms.');
+                return;
+            }
+            displayAdvisorClassrooms(currentUser.id);
         });
     }
 
@@ -437,6 +457,13 @@ function showAdvisorSection(sectionName) {
         updateAdvisorDashboard();
     } else if (sectionName === 'pending-requests') {
         displayAdvisorPendingRequests();
+    } else if (sectionName === 'advisor-classrooms') {
+        // Initialize default date/time if empty
+        const today = new Date().toISOString().split('T')[0];
+        if (advisorClassroomDateInput && !advisorClassroomDateInput.value) advisorClassroomDateInput.value = today;
+        if (advisorClassroomStartInput && !advisorClassroomStartInput.value) advisorClassroomStartInput.value = '09:00';
+        if (advisorClassroomEndInput && !advisorClassroomEndInput.value) advisorClassroomEndInput.value = '10:00';
+        displayAdvisorClassrooms(currentUser.id);
     } else if (sectionName === 'student-management') {
         displayAdvisorStudents('all');
     } else if (sectionName === 'manage-bookings') {
@@ -811,6 +838,113 @@ function displayClassrooms(studentId) {
     }
 }
 
+// --- Advisor Classroom Booking ---
+
+function displayAdvisorClassrooms(advisorId) {
+    if (!advisorClassroomsList) return;
+
+    const date = advisorClassroomDateInput && advisorClassroomDateInput.value ? advisorClassroomDateInput.value : new Date().toISOString().split('T')[0];
+    const startTime = advisorClassroomStartInput && advisorClassroomStartInput.value ? advisorClassroomStartInput.value : '09:00';
+    const endTime = advisorClassroomEndInput && advisorClassroomEndInput.value ? advisorClassroomEndInput.value : '10:00';
+
+    advisorClassroomsList.innerHTML = '';
+
+    const available = universityDB.getAvailableClassrooms(date, startTime, endTime);
+
+    if (!available || available.length === 0) {
+        advisorClassroomsList.innerHTML = '<p class="placeholder-text">No classrooms available for the selected time.</p>';
+        return;
+    }
+
+    available.forEach(room => {
+        const card = document.createElement('div');
+        card.className = 'course-card';
+        card.innerHTML = `
+            <h4>${room.id}: ${room.name}</h4>
+            <p><strong>Capacity:</strong> ${room.capacity}</p>
+            <p><strong>Location:</strong> ${room.location}</p>
+            <p><strong>Features:</strong> ${room.features ? room.features.join(', ') : 'N/A'}</p>
+            <div class="course-footer">
+                <button class="btn btn-primary advisor-book-classroom-btn" data-room-id="${room.id}">Book</button>
+            </div>
+        `;
+
+        advisorClassroomsList.appendChild(card);
+    });
+
+    document.querySelectorAll('.advisor-book-classroom-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const roomId = e.currentTarget.getAttribute('data-room-id');
+            openAdvisorBookingModal(roomId);
+        });
+    });
+
+    displayAdvisorMyBookings(advisorId);
+}
+
+function openAdvisorBookingModal(classroomId) {
+    const room = universityDB.getAllClassrooms().find(r => r.id === classroomId);
+    if (!room) return;
+
+    bookingClassroomIdInput.value = classroomId;
+    bookingClassroomInfo.textContent = `${room.id}: ${room.name} — ${room.location}`;
+    bookingPurposeInput.value = '';
+    bookingDateInput.value = advisorClassroomDateInput && advisorClassroomDateInput.value ? advisorClassroomDateInput.value : new Date().toISOString().split('T')[0];
+    bookingStartInput.value = advisorClassroomStartInput && advisorClassroomStartInput.value ? advisorClassroomStartInput.value : '09:00';
+    bookingEndInput.value = advisorClassroomEndInput && advisorClassroomEndInput.value ? advisorClassroomEndInput.value : '10:00';
+
+    classroomBookingModal.style.display = 'flex';
+}
+
+function displayAdvisorMyBookings(advisorId) {
+    const container = document.getElementById('advisor-my-bookings-list');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const bookings = universityDB.getBookingsByStudent(advisorId) || [];
+    if (bookings.length === 0) {
+        container.innerHTML = '<p class="placeholder-text">You have no bookings yet.</p>';
+        return;
+    }
+
+    bookings.sort((a,b) => (a.date + a.startTime).localeCompare(b.date + b.startTime));
+
+    bookings.forEach(b => {
+        const room = universityDB.getAllClassrooms().find(r => r.id === b.classroomId) || { id: b.classroomId, name: '' };
+        const item = document.createElement('div');
+        item.className = 'request-item';
+        item.innerHTML = `
+            <div class="request-header">
+                <div class="request-info">
+                    <h4>${room.id}: ${room.name}</h4>
+                    <div class="request-meta">Date: ${b.date} | ${b.startTime} - ${b.endTime}</div>
+                </div>
+                <span class="request-status status-${b.status || 'pending'}">${(b.status || 'pending').toUpperCase()}</span>
+            </div>
+            <p class="request-reason"><strong>Purpose:</strong> ${b.purpose || 'N/A'}</p>
+            <div class="request-actions">
+                ${b.status === 'pending' ? `<button class="btn btn-danger advisor-cancel-booking-btn" data-booking-id="${b.id}">Cancel</button>` : ''}
+            </div>
+        `;
+        container.appendChild(item);
+    });
+
+    document.querySelectorAll('.advisor-cancel-booking-btn').forEach(btn => btn.addEventListener('click', (e) => {
+        const id = parseInt(e.currentTarget.getAttribute('data-booking-id'));
+        if (!confirm('Cancel this booking?')) return;
+        try {
+            const booking = universityDB.getAllBookings().find(x => x.id === id);
+            if (!booking) { alert('Booking not found'); return; }
+            if (booking.bookedBy !== currentUser.id) { alert('You may only cancel your own bookings.'); return; }
+            universityDB.deleteBooking(id);
+            alert('Booking cancelled.');
+            displayAdvisorMyBookings(currentUser.id);
+            displayAdvisorClassrooms(currentUser.id);
+            updateAdvisorDashboard();
+        } catch (err) { alert('Cancel failed: ' + err.message); }
+    }));
+}
+
 function openBookingModal(classroomId) {
     const room = universityDB.getAllClassrooms().find(r => r.id === classroomId);
     if (!room) return;
@@ -829,6 +963,7 @@ function closeBookingModal() {
     if (classroomBookingModal) classroomBookingModal.style.display = 'none';
 }
 
+// In the submitClassroomBooking function, modify the booking creation for advisors
 function submitClassroomBooking() {
     if (!currentUser) {
         alert('You must be logged in to book a classroom.');
@@ -842,6 +977,9 @@ function submitClassroomBooking() {
     const purpose = bookingPurposeInput.value.trim() || 'General Booking';
 
     try {
+        // Auto-approve bookings made by advisors
+        const status = currentUser.role === 'advisor' ? 'approved' : 'pending';
+
         const booking = {
             classroomId,
             date,
@@ -849,16 +987,224 @@ function submitClassroomBooking() {
             endTime,
             bookedBy: currentUser.id,
             purpose,
-            status: 'pending'
+            status: status  // Set status based on user role
         };
 
         universityDB.createBooking(booking);
-        alert('Booking confirmed!');
+        
+        if (currentUser.role === 'advisor') {
+            alert('Booking confirmed and automatically approved!');
+        } else {
+            alert('Booking request submitted! Waiting for approval.');
+        }
+        
         closeBookingModal();
-        displayClassrooms(currentUser.id);
+        
+        // Refresh the appropriate classroom view based on user role
+        if (currentUser.role === 'student') {
+            displayClassrooms(currentUser.id);
+        } else if (currentUser.role === 'advisor') {
+            displayAdvisorClassrooms(currentUser.id);
+        }
     } catch (err) {
         alert('Booking failed: ' + err.message);
     }
+}
+
+// In the displayAdvisorBookings function, remove the approve/reject buttons for advisor's own bookings
+function displayAdvisorBookings() {
+    if (!advisorBookingsList) return;
+    advisorBookingsList.innerHTML = '';
+
+    const bookings = universityDB.getAllBookings();
+    if (!bookings || bookings.length === 0) {
+        advisorBookingsList.innerHTML = '<p class="placeholder-text">No bookings found.</p>';
+        return;
+    }
+
+    bookings.forEach(b => {
+        const student = universityDB.getStudentById(b.bookedBy) || { firstName: 'Unknown', lastName: '', id: b.bookedBy };
+        const room = universityDB.getAllClassrooms().find(r => r.id === b.classroomId) || { id: b.classroomId, name: '' };
+
+        const item = document.createElement('div');
+        item.className = 'request-item';
+        
+        // Check if this is the current advisor's own booking
+        const isOwnBooking = b.bookedBy === currentUser.id;
+        
+        item.innerHTML = `
+            <div class="request-header">
+                <div class="request-info">
+                    <h4>${room.id}: ${room.name}</h4>
+                    <div class="request-meta">Booked by: ${student.firstName} ${student.lastName} (${student.id}) | Date: ${b.date} ${b.startTime}-${b.endTime}</div>
+                </div>
+                <span class="request-status status-${b.status || 'pending'}">${(b.status || 'pending').toUpperCase()}</span>
+            </div>
+            <p class="request-reason"><strong>Purpose:</strong> ${b.purpose || 'N/A'}</p>
+            <div class="request-actions">
+                ${isOwnBooking ? `
+                    <button class="btn btn-primary advisor-edit-booking-btn" data-booking-id="${b.id}">Edit</button>
+                    <button class="btn btn-danger advisor-cancel-booking-btn" data-booking-id="${b.id}">Cancel</button>
+                ` : `
+                    <button class="btn btn-primary advisor-edit-booking-btn" data-booking-id="${b.id}">Edit</button>
+                    <button class="btn btn-success advisor-approve-booking-btn" data-booking-id="${b.id}">Approve</button>
+                    <button class="btn btn-danger advisor-reject-booking-btn" data-booking-id="${b.id}">Reject</button>
+                `}
+            </div>
+        `;
+
+        advisorBookingsList.appendChild(item);
+    });
+
+    document.querySelectorAll('.advisor-edit-booking-btn').forEach(btn => btn.addEventListener('click', (e) => {
+        const id = parseInt(e.currentTarget.getAttribute('data-booking-id'));
+        openAdvisorEditBookingModal(id);
+    }));
+
+    document.querySelectorAll('.advisor-approve-booking-btn').forEach(btn => btn.addEventListener('click', (e) => {
+        const id = parseInt(e.currentTarget.getAttribute('data-booking-id'));
+        if (confirm('Approve this booking?')) {
+            try {
+                universityDB.setBookingStatus(id, 'approved');
+                alert('Booking approved.');
+                displayAdvisorBookings();
+                updateAdvisorDashboard();
+            } catch (err) { alert('Action failed: ' + err.message); }
+        }
+    }));
+
+    document.querySelectorAll('.advisor-reject-booking-btn').forEach(btn => btn.addEventListener('click', (e) => {
+        const id = parseInt(e.currentTarget.getAttribute('data-booking-id'));
+        if (confirm('Reject this booking?')) {
+            try {
+                universityDB.setBookingStatus(id, 'rejected');
+                alert('Booking rejected.');
+                displayAdvisorBookings();
+                updateAdvisorDashboard();
+            } catch (err) { alert('Action failed: ' + err.message); }
+        }
+    }));
+
+    // Add event listener for cancel buttons
+    document.querySelectorAll('.advisor-cancel-booking-btn').forEach(btn => btn.addEventListener('click', (e) => {
+        const id = parseInt(e.currentTarget.getAttribute('data-booking-id'));
+        if (confirm('Cancel this booking?')) {
+            try {
+                universityDB.deleteBooking(id);
+                alert('Booking cancelled.');
+                displayAdvisorBookings();
+                updateAdvisorDashboard();
+            } catch (err) { alert('Cancel failed: ' + err.message); }
+        }
+    }));
+}
+
+// Also update the displayAdvisorMyBookings function to show approved status for advisor bookings
+function displayAdvisorMyBookings(advisorId) {
+    const container = document.getElementById('advisor-my-bookings-list');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const bookings = universityDB.getBookingsByStudent(advisorId) || [];
+    if (bookings.length === 0) {
+        container.innerHTML = '<p class="placeholder-text">You have no bookings yet.</p>';
+        return;
+    }
+
+    bookings.sort((a,b) => (a.date + a.startTime).localeCompare(b.date + b.startTime));
+
+    bookings.forEach(b => {
+        const room = universityDB.getAllClassrooms().find(r => r.id === b.classroomId) || { id: b.classroomId, name: '' };
+        const item = document.createElement('div');
+        item.className = 'request-item';
+        item.innerHTML = `
+            <div class="request-header">
+                <div class="request-info">
+                    <h4>${room.id}: ${room.name}</h4>
+                    <div class="request-meta">Date: ${b.date} | ${b.startTime} - ${b.endTime}</div>
+                </div>
+                <span class="request-status status-${b.status || 'pending'}">${(b.status || 'pending').toUpperCase()}</span>
+            </div>
+            <p class="request-reason"><strong>Purpose:</strong> ${b.purpose || 'N/A'}</p>
+            <div class="request-actions">
+                <button class="btn btn-danger advisor-cancel-booking-btn" data-booking-id="${b.id}">Cancel</button>
+            </div>
+        `;
+        container.appendChild(item);
+    });
+
+    document.querySelectorAll('.advisor-cancel-booking-btn').forEach(btn => btn.addEventListener('click', (e) => {
+        const id = parseInt(e.currentTarget.getAttribute('data-booking-id'));
+        if (!confirm('Cancel this booking?')) return;
+        try {
+            const booking = universityDB.getAllBookings().find(x => x.id === id);
+            if (!booking) { alert('Booking not found'); return; }
+            if (booking.bookedBy !== currentUser.id) { alert('You may only cancel your own bookings.'); return; }
+            universityDB.deleteBooking(id);
+            alert('Booking cancelled.');
+            displayAdvisorMyBookings(currentUser.id);
+            displayAdvisorClassrooms(currentUser.id);
+            updateAdvisorDashboard();
+        } catch (err) { alert('Cancel failed: ' + err.message); }
+    }));
+}
+
+// Update the displayAllBookings function to ensure admin can delete any booking
+function displayAllBookings() {
+    const container = document.getElementById('admin-bookings-list');
+    if (!container) return;
+    
+    container.innerHTML = '';
+
+    const bookings = universityDB.getAllBookings();
+    
+    if (bookings.length === 0) {
+        container.innerHTML = '<p class="placeholder-text">No bookings found.</p>';
+        return;
+    }
+
+    bookings.forEach(booking => {
+        const student = universityDB.getStudentById(booking.bookedBy) || universityDB.getAdvisorById(booking.bookedBy) || { firstName: 'Unknown', lastName: '', id: booking.bookedBy };
+        const room = universityDB.getAllClassrooms().find(r => r.id === booking.classroomId);
+        
+        if (!student || !room) return;
+
+        const item = document.createElement('div');
+        item.className = 'request-item';
+        item.innerHTML = `
+            <div class="request-header">
+                <div class="request-info">
+                    <h4>${room.name} (${room.id})</h4>
+                    <div class="request-meta">
+                        Booked by: ${student.firstName} ${student.lastName} (${student.id}) | 
+                        Date: ${booking.date} | Time: ${booking.startTime}-${booking.endTime}
+                    </div>
+                </div>
+                <span class="request-status status-${booking.status || 'pending'}">${(booking.status || 'pending').toUpperCase()}</span>
+            </div>
+            <p class="request-reason"><strong>Purpose:</strong> ${booking.purpose || 'N/A'}</p>
+            <div class="request-actions">
+                <button class="btn btn-danger delete-booking-btn" data-booking-id="${booking.id}">Delete</button>
+            </div>
+        `;
+        container.appendChild(item);
+    });
+
+    document.querySelectorAll('.delete-booking-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const bookingId = parseInt(e.target.getAttribute('data-booking-id'));
+            if (confirm('Delete this booking?')) {
+                try {
+                    universityDB.deleteBooking(bookingId);
+                    displayAllBookings();
+                    updateAdminDashboard();
+                    alert('Booking deleted successfully.');
+                } catch (err) {
+                    alert('Error deleting booking: ' + err.message);
+                }
+            }
+        });
+    });
 }
 
 function displayStudentBookings(studentId) {
