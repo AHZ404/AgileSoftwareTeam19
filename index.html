@@ -244,6 +244,7 @@
             <div class="nav-menu">
                 <a href="#" class="nav-item active" data-section="advisor-dashboard"><i class="fas fa-chart-line"></i> Dashboard</a>
                 <a href="#" class="nav-item" data-section="pending-requests"><i class="fas fa-bell"></i> Pending Requests</a>
+                <a href="#" class="nav-item" data-section="advisor-classrooms"><i class="fas fa-door-open"></i> Book Classrooms</a>
                 <a href="#" class="nav-item" data-section="manage-bookings"><i class="fas fa-door-closed"></i> Manage Bookings</a>
                 <a href="#" class="nav-item" data-section="student-management"><i class="fas fa-users"></i> Student Management</a>
             </div>
@@ -285,6 +286,37 @@
                     <h2>Course Registration Requests</h2>
                     <div id="advisor-requests-list" class="requests-grid">
                         </div>
+                </div>
+
+                <div id="advisor-classrooms-section" class="content-section" style="display: none;">
+                    <h2>Classroom Availability & Booking</h2>
+                    <div class="classroom-filters">
+                        <div class="form-group">
+                            <label for="advisor-classroom-date">Date</label>
+                            <input type="date" id="advisor-classroom-date" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="advisor-classroom-start">Start Time</label>
+                            <input type="time" id="advisor-classroom-start" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="advisor-classroom-end">End Time</label>
+                            <input type="time" id="advisor-classroom-end" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label>&nbsp;</label>
+                            <button id="advisor-search-classrooms-btn" class="btn btn-primary">Search</button>
+                        </div>
+                    </div>
+
+                    <div id="advisor-classrooms-list" class="courses-grid">
+                    </div>
+                    <div class="widget large" style="margin-top:20px;">
+                        <h3>Your Bookings</h3>
+                        <div id="advisor-my-bookings-list" class="requests-grid">
+                            <p class="placeholder-text">You have no bookings yet.</p>
+                        </div>
+                    </div>
                 </div>
 
                 <div id="student-management-section" class="content-section" style="display: none;">

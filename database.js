@@ -532,6 +532,16 @@ class UniversityDB {
             throw new Error('The classroom is not available in the requested time slot.');
         }
 
+        // Auto-approve bookings made by advisors
+        if (!booking.status) {
+            const user = this.getAllUsers().find(u => u.id === booking.bookedBy);
+            if (user && user.role === 'advisor') {
+                booking.status = 'approved';
+            } else {
+                booking.status = 'pending';
+            }
+        }
+
         // Assign id
         const maxId = this.bookings.reduce((m, b) => Math.max(m, b.id || 0), 0);
         booking.id = maxId + 1;
@@ -590,6 +600,13 @@ class UniversityDB {
     setBookingStatus(bookingId, status) {
         const booking = this.bookings.find(b => b.id === bookingId);
         if (!booking) throw new Error('Booking not found');
+    
+        // Prevent changing advisor's own approved bookings back to pending
+        const user = this.getAllUsers().find(u => u.id === booking.bookedBy);
+        if (user && user.role === 'advisor' && status === 'pending' && booking.status === 'approved') {
+            throw new Error('Advisor bookings cannot be set to pending status');
+        }
+    
         booking.status = status;
         this.saveToStorage();
         return booking;
