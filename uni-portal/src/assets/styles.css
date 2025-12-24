@@ -1,3 +1,5 @@
+/* index.css */
+
 * {
     margin: 0;
     padding: 0;
@@ -476,7 +478,7 @@ textarea.form-control {
     border-radius: 4px;
 }
 
-/* Course Card Footer (Updated for the new button) */
+/* Course Card Footer */
 .course-footer {
     text-align: right;
     padding-top: 10px;
@@ -485,7 +487,7 @@ textarea.form-control {
     justify-content: flex-end;
 }
 
-/* Style for the Register button in the course card (kept separate for consistency) */
+/* Button Styles */
 .btn-register {
     background-color: var(--warning); 
     color: white;
@@ -503,7 +505,6 @@ textarea.form-control {
     background-color: #d82069; 
 }
 
-/* NEW: Style for the View Materials button */
 .view-materials-btn {
     background-color: var(--success);
     color: var(--dark);
@@ -640,18 +641,6 @@ textarea.form-control {
     margin-bottom: 15px;
     font-size: 14px;
     color: var(--gray);
-}
-
-:root {
-    --primary: #4361ee;
-    --secondary: #3f37c9;
-    --success: #4cc9f0;
-    --warning: #f72585;
-    --danger: #d90429;
-    --light: #f8f9fa;
-    --dark: #212529;
-    --gray: #6c757d;
-    --light-gray: #e9ecef;
 }
 
 /* Admin Specific Styles */

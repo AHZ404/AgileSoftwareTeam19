@@ -736,4 +736,5 @@ class UniversityDB {
 }
 
 // Instantiate the database
-const universityDB = new UniversityDB();
+export const universityDB = new UniversityDB();
+export default UniversityDB;
