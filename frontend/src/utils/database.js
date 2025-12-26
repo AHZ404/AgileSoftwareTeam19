@@ -1,13 +1,13 @@
 // University Database Simulation with localStorage persistence
 class UniversityDB {
-    constructor() {
+    constructor() { 
         this.initDatabase();
     }
     
     initDatabase() {
         // Initialize or load from localStorage.
         // If any of the core keys are missing or initialization flag absent, re-create the demo data.
-        const requiredKeys = ['students', 'advisors', 'courses', 'assignments', 'enrollments', 'grades', 'courseRequests', 'classrooms', 'bookings', 'admins'];
+        const requiredKeys = ['students', 'advisors', 'courses', 'assignments', 'enrollments', 'grades', 'courseRequests', 'classrooms', 'bookings', 'admins', 'instructors'];
         let needInit = false;
         for (const key of requiredKeys) {
             if (!localStorage.getItem(key)) {
@@ -27,6 +27,7 @@ class UniversityDB {
     initializeData() {
         const database = {
             students: this.generateStudents(),
+            instructors: this.generateInstructors(),
             advisors: this.generateAdvisors(),
             admins: this.generateAdmins(),
             courses: this.generateCourses(),
@@ -49,6 +50,7 @@ class UniversityDB {
     saveToStorage(database = this) {
         localStorage.setItem('students', JSON.stringify(database.students));
         localStorage.setItem('advisors', JSON.stringify(database.advisors));
+        localStorage.setItem('instructors', JSON.stringify(database.instructors || []));
         localStorage.setItem('admins', JSON.stringify(database.admins));
         localStorage.setItem('courses', JSON.stringify(database.courses));
         localStorage.setItem('assignments', JSON.stringify(database.assignments));
@@ -130,12 +132,18 @@ class UniversityDB {
             console.error('Failed to parse bookings from localStorage, resetting to [].', e);
             this.bookings = [];
         }
+        try {
+            this.instructors = JSON.parse(localStorage.getItem('instructors')) || [];
+        } catch (e) {
+            console.error('Failed to parse instructors, resetting to [].', e);
+            this.instructors = [];
+        }
 
         // If core demo accounts are missing (e.g. previous localStorage had old demo data),
         // re-seed the database so expected demo users exist for testing/login.
         try {
-            const demoEmails = ['ahmed.elsayed@university.edu', 'mona.ali@university.edu', 'dr.elgohary@university.edu', 'admin@university.edu'];
-            const allUsers = [...(this.students || []), ...(this.advisors || []), ...(this.admins || [])];
+            const demoEmails = ['ahmed.elsayed@university.edu', 'mona.ali@university.edu', 'dr.elgohary@university.edu', 'admin@university.edu', 'mostafa.fouad@university.edu'];
+            const allUsers = [...(this.students || []), ...(this.advisors || []), ...(this.admins || []), ...(this.instructors || [])];
             const foundDemo = demoEmails.some(email => 
                 allUsers.some(u => u.email && u.email.toLowerCase() === email.toLowerCase())
             );
@@ -150,6 +158,7 @@ class UniversityDB {
                     this.students = JSON.parse(localStorage.getItem('students')) || [];
                     this.advisors = JSON.parse(localStorage.getItem('advisors')) || [];
                     this.admins = JSON.parse(localStorage.getItem('admins')) || [];
+                    this.instructors = JSON.parse(localStorage.getItem('instructors')) || [];
                     this.courses = JSON.parse(localStorage.getItem('courses')) || [];
                     this.assignments = JSON.parse(localStorage.getItem('assignments')) || [];
                     this.enrollments = JSON.parse(localStorage.getItem('enrollments')) || [];
@@ -165,7 +174,30 @@ class UniversityDB {
             console.error('Error checking demo accounts.', e);
         }
     }
-    
+    generateInstructors() {
+        return [
+            {
+                id: 2001, // Start IDs from 2001 to distinguish from others
+                firstName: 'Mostafa',
+                lastName: 'Fouad',
+                username: 'inst_mostafa',   // Demo Username
+                email: 'mostafa.fouad@university.edu',
+                password: 'password123',    // Demo Password
+                role: 'instructor',
+                department: 'Computer Science'
+            },
+            {
+                id: 2002,
+                firstName: 'Bob',
+                lastName: 'Jones',
+                username: 'prof_jones',
+                email: 'bob.jones@university.edu',
+                password: 'password123',
+                role: 'instructor',
+                department: 'Mathematics'
+            }
+        ];
+    }
     generateAdvisors() {
         return [
             {
@@ -354,7 +386,8 @@ class UniversityDB {
         const allUsers = [
             ...(this.students || []),
             ...(this.advisors || []),
-            ...(this.admins || [])
+            ...(this.admins || []),
+            ...(this.instructors || [])
         ];
         
         return allUsers.find(u => u.email && u.email.toLowerCase() === needle);
@@ -365,7 +398,8 @@ class UniversityDB {
         const studentMax = (this.students || []).reduce((m, s) => Math.max(m, Number(s.id) || 0), 0);
         const advisorMax = (this.advisors || []).reduce((m, a) => Math.max(m, Number(a.id) || 0), 0);
         const adminMax = (this.admins || []).reduce((m, a) => Math.max(m, Number(a.id) || 0), 0);
-        return Math.max(studentMax, advisorMax, adminMax) + 1;
+        const instructorMax = (this.instructors || []).reduce((m, a) => Math.max(m, Number(a.id) || 0), 0);
+        return Math.max(studentMax, advisorMax, adminMax, instructorMax) + 1;
     }
 
     getStudentById(id) {
@@ -379,10 +413,13 @@ class UniversityDB {
     getAdminById(id) {
         return this.admins.find(a => a.id === id);
     }
+    getInstructorById(id) {
+        return this.instructors.find(i => i.id === id);
+    }
 
     // Return all users combined (students, advisors, admins)
     getAllUsers() {
-        return [ ...(this.students || []), ...(this.advisors || []), ...(this.admins || []) ];
+        return [ ...(this.students || []), ...(this.advisors || []), ...(this.admins || []), ...(this.instructors || []) ];
     }
 
     getAllAdmins() {
@@ -535,7 +572,7 @@ class UniversityDB {
         // Auto-approve bookings made by advisors
         if (!booking.status) {
             const user = this.getAllUsers().find(u => u.id === booking.bookedBy);
-            if (user && user.role === 'advisor') {
+            if (user && user.role === 'advisor' || user.role === 'instructor') {
                 booking.status = 'approved';
             } else {
                 booking.status = 'pending';
@@ -641,6 +678,14 @@ class UniversityDB {
         if (aIdx !== -1) {
             const removed = this.advisors.splice(aIdx, 1)[0];
             // Optionally reassign or remove courses taught by this advisor. For now, just remove advisor.
+            this.saveToStorage();
+            return removed;
+        }
+
+        // Try instructors
+        const iIdx = (this.instructors || []).findIndex(i => String(i.id) === String(userId));
+        if (iIdx !== -1) {
+            const removed = this.instructors.splice(iIdx, 1)[0];
             this.saveToStorage();
             return removed;
         }

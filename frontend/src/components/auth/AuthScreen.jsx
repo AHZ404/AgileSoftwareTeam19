@@ -56,7 +56,8 @@ const AuthScreen = ({ onLogin }) => {
     };
 
     if (regData.role === 'student') universityDB.students.push(newUser);
-    else universityDB.advisors.push(newUser);
+    else if (regData.role === 'advisor') universityDB.advisors.push(newUser);
+    else if (regData.role === 'instructor') universityDB.instructors.push(newUser);
 
     universityDB.saveToStorage();
     setRegMsg('Registration successful! Please log in.');
@@ -97,6 +98,7 @@ const AuthScreen = ({ onLogin }) => {
                 Student: ahmed.elsayed@university.edu<br/>
                 Advisor: dr.elgohary@university.edu<br/>
                 Admin: admin@university.edu<br/>
+                Instructor: mostafa.fouad@university.edu<br/>
                 Password: password123 (for all demo accounts)
             </p>
           </form>
@@ -128,6 +130,7 @@ const AuthScreen = ({ onLogin }) => {
                <select className="form-control" value={regData.role} onChange={e => setRegData({...regData, role: e.target.value})}>
                  <option value="student">Student</option>
                  <option value="advisor">Advisor</option>
+                 <option value="instructor">Instructor</option>
                </select>
             </div>
             <button type="submit" className="btn btn-primary btn-block">Register</button>
