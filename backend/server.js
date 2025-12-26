@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const bcrypt = require('bcrypt'); // --- NEW: Import bcrypt for security ---
 const { poolPromise, sql } = require('./dbConfig');
 
 const app = express();
@@ -19,9 +20,9 @@ async function getAttributeId(name) {
     return result.recordset.length > 0 ? result.recordset[0].Id : null;
 }
 
-// --- API 1: CREATE ENTITY (User, Course, Assignment) ---
+// --- API 1: CREATE ENTITY (Handles Registration for Users, Courses, Assignments) ---
 app.post('/api/entity', async (req, res) => {
-    // Expected JSON: { "id": "STU001", "type": "student", "attributes": { "FirstName": "John", "Role": "student" } }
+    // Expected JSON: { "id": "STU001", "type": "student", "attributes": { "FirstName": "John", "Password": "123" } }
     const { id, type, attributes } = req.body;
     
     const pool = await poolPromise;
@@ -30,7 +31,7 @@ app.post('/api/entity', async (req, res) => {
     try {
         await transaction.begin();
 
-        // 1. Create the Entity Core
+        // 1. Create the Entity Core (The "Thing" itself)
         const request = new sql.Request(transaction);
         await request.input('id', sql.VarChar, id)
                      .input('type', sql.VarChar, type)
@@ -42,6 +43,19 @@ app.post('/api/entity', async (req, res) => {
             
             if (attrId) {
                 const valRequest = new sql.Request(transaction);
+
+                // --- NEW: PASSWORD HASHING LOGIC STARTS HERE ---
+                // If the attribute is 'Password', we scramble it before saving.
+                let finalValue = value;
+                
+                if (key === 'Password') {
+                    // Generate a salt and hash the password
+                    const salt = await bcrypt.genSalt(10);
+                    finalValue = await bcrypt.hash(value, salt);
+                    // Now 'finalValue' is the secure hash (e.g., $2b$10$EixZa...), not "12345"
+                }
+                // --- PASSWORD HASHING LOGIC ENDS HERE ---
+
                 // Check if it's a file (Base64) or text
                 if (key === 'File' || key === 'MaterialData') {
                      // Assume value is base64 string
@@ -51,10 +65,10 @@ app.post('/api/entity', async (req, res) => {
                                      .input('valBin', sql.VarBinary(sql.MAX), buffer)
                                      .query(`INSERT INTO EntityValues (EntityId, AttributeId, ValueBinary) VALUES (@entId, @attrId, @valBin)`);
                 } else {
-                     // Standard Text
+                     // Standard Text (Includes Hashed Passwords, Names, Emails, etc.)
                      await valRequest.input('entId', sql.VarChar, id)
                                      .input('attrId', sql.Int, attrId)
-                                     .input('valText', sql.NVarChar, String(value))
+                                     .input('valText', sql.NVarChar, String(finalValue)) // We save finalValue here
                                      .query(`INSERT INTO EntityValues (EntityId, AttributeId, ValueText) VALUES (@entId, @attrId, @valText)`);
                 }
             }
@@ -108,15 +122,16 @@ app.get('/api/entity/:id', async (req, res) => {
         res.status(500).send(err.message);
     }
 });
-// --- API 3: LOGIN (EAV Style) ---
+
+// --- API 3: LOGIN (Updated with Bcrypt Verification) ---
+// --- API 3: LOGIN (Updated to fix White Screen Crash) ---
 app.post('/api/login', async (req, res) => {
-    const { loginId, password } = req.body; // loginId can be Email or UserID
+    const { loginId, password } = req.body; 
     
     try {
         const pool = await poolPromise;
         
-        // 1. Find the User's EntityID based on the Login ID provided
-        // We check if the ID matches the Entity ID OR if it matches an 'Email' attribute
+        // 1. Find User
         const userCheck = await pool.request()
             .input('loginId', sql.VarChar, loginId)
             .query(`
@@ -136,7 +151,6 @@ app.post('/api/login', async (req, res) => {
         const userType = userCheck.recordset[0].EntityType;
 
         // 2. Verify Password
-        // We look for the 'Password' attribute for this specific userId
         const passwordCheck = await pool.request()
             .input('uid', sql.VarChar, userId)
             .query(`
@@ -145,14 +159,13 @@ app.post('/api/login', async (req, res) => {
                 WHERE V.EntityId = @uid AND A.AttributeName = 'Password'
             `);
 
-        const dbPassword = passwordCheck.recordset.length > 0 ? passwordCheck.recordset[0].ValueText : null;
+        const dbHash = passwordCheck.recordset.length > 0 ? passwordCheck.recordset[0].ValueText : null;
 
-        if (dbPassword !== password) {
+        if (!dbHash || !(await bcrypt.compare(password, dbHash))) {
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
 
-        // 3. Login Success! Fetch user details (Role, Name) to send back
-        // Reuse the logic from our GET /api/entity/:id endpoint logic or simplified here:
+        // 3. Login Success! Fetch details & CONVERT TO LOWERCASE KEYS
         const userDetails = await pool.request()
             .input('uid', sql.VarChar, userId)
             .query(`
@@ -162,12 +175,15 @@ app.post('/api/login', async (req, res) => {
                 WHERE V.EntityId = @uid
             `);
 
-        // Convert list of rows into a nice object: { FirstName: 'John', Role: 'student' ... }
+        // --- THE CRITICAL FIX IS HERE ---
         const userData = {
             id: userId,
             type: userType,
             ...userDetails.recordset.reduce((acc, row) => {
-                acc[row.AttributeName] = row.ValueText;
+                // Force the first letter to be lowercase
+                // "FirstName" -> "firstName", "Email" -> "email"
+                const key = row.AttributeName.charAt(0).toLowerCase() + row.AttributeName.slice(1);
+                acc[key] = row.ValueText;
                 return acc;
             }, {})
         };
@@ -177,6 +193,56 @@ app.post('/api/login', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+// --- API: Get Student Requests ---
+app.get('/api/requests/:studentId', async (req, res) => {
+    try {
+        const pool = await poolPromise;
+        // Join with View_Courses to get the course title for the request list
+        const result = await pool.request()
+            .input('sid', sql.VarChar, req.params.studentId)
+            .query(`
+                SELECT E.Id, E.CourseId, E.Status, E.Reason, C.Title, E.EnrolledAt
+                FROM Enrollments E
+                JOIN View_Courses C ON E.CourseId = C.CourseID
+                WHERE E.StudentId = @sid
+            `);
+        res.json(result.recordset);
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
+// --- API: Submit Course Request ---
+app.post('/api/course-request', async (req, res) => {
+    const { studentId, courseId, reason } = req.body;
+    try {
+        const pool = await poolPromise;
+        
+        // 1. Check if already requested or enrolled
+        const check = await pool.request()
+            .input('sid', sql.VarChar, studentId)
+            .input('cid', sql.VarChar, courseId)
+            .query('SELECT * FROM Enrollments WHERE StudentId = @sid AND CourseId = @cid');
+
+        if (check.recordset.length > 0) {
+            return res.status(400).json({ message: 'Request already exists for this course' });
+        }
+
+        // 2. Insert new request
+        await pool.request()
+            .input('sid', sql.VarChar, studentId)
+            .input('cid', sql.VarChar, courseId)
+            .input('reason', sql.VarChar, reason)
+            .query(`
+                INSERT INTO Enrollments (StudentId, CourseId, Status, Reason, EnrolledAt) 
+                VALUES (@sid, @cid, 'pending', @reason, GETDATE())
+            `);
+
+        res.json({ success: true, message: 'Request submitted successfully' });
+    } catch (err) {
+        res.status(500).send(err.message);
     }
 });
 
