@@ -19,6 +19,7 @@ const AdminDashboard = () => {
     const requests = universityDB.getAllPendingCourseRequests() || [];
     const allRequests = universityDB.courseRequests || [];
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStats({
       students: students.length,
       advisors: advisors.length,
