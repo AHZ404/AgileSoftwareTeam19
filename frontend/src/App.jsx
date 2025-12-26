@@ -5,6 +5,7 @@ import AuthScreen from './components/auth/AuthScreen';
 import StudentApp from './components/student/StudentApp';
 import AdvisorApp from './components/advisor/AdvisorApp';
 import AdminApp from './components/admin/AdminApp';
+import InstructorApp from './components/instructor/InstructorApp';``
 
 const App = () => {
   const [currentUser, setCurrentUser] = useState(null);
@@ -14,7 +15,7 @@ const App = () => {
     if (savedUser) {
       try {
         const parsed = JSON.parse(savedUser);
-        if (parsed && (parsed.role === 'student' || parsed.role === 'advisor' || parsed.role === 'admin')) {
+        if (parsed && (parsed.role === 'student' || parsed.role === 'advisor' || parsed.role === 'admin' || parsed.role === 'instructor')) {
           setCurrentUser(parsed);
         }
       } catch (e) {
@@ -42,6 +43,7 @@ const App = () => {
       {currentUser.role === 'student' && <StudentApp user={currentUser} onLogout={handleLogout} />}
       {currentUser.role === 'advisor' && <AdvisorApp user={currentUser} onLogout={handleLogout} />}
       {currentUser.role === 'admin' && <AdminApp user={currentUser} onLogout={handleLogout} />}
+      {currentUser.role === 'instructor' && <InstructorApp user={currentUser} onLogout={handleLogout} />}
     </>
   );
 };

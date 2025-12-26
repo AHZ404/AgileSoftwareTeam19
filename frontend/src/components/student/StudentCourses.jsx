@@ -45,7 +45,7 @@ const StudentCourses = ({ user }) => {
       <div className="courses-grid">
         {availableCourses.length === 0 ? <p className="placeholder-text">No available courses.</p> : availableCourses.map(course => {
           // Get instructor name safely
-          const instructor = universityDB.getAdvisorById(course.instructorId) || {firstName: 'Staff', lastName: ''};
+          const instructor = universityDB.getAdvisorById(course.instructorId) || universityDB.getInstructorById(course.instructorId) || {firstName: 'Staff', lastName: ''};
           
           return (
             <div key={course.id} className="course-card" style={{borderTopColor: course.color || 'var(--primary)'}}>

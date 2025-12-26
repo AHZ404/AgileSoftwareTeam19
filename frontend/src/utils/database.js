@@ -409,7 +409,9 @@ class UniversityDB {
     getAdvisorById(id) {
         return this.advisors.find(a => a.id === id);
     }
-
+    getInstructorById(id) {
+        return this.instructors.find(i => i.id === id);
+    }
     getAdminById(id) {
         return this.admins.find(a => a.id === id);
     }
@@ -434,6 +436,75 @@ class UniversityDB {
         const studentEnrollments = this.enrollments.filter(e => e.studentId === studentId);
         return studentEnrollments.map(e => this.courses.find(c => c.id === e.courseId));
     }
+    assignInstructorToCourse(courseId, instructorId) {
+        const course = this.courses.find(c => c.id === courseId);
+        if (!course) throw new Error('Course not found');
+
+        // 1. Initialize the array if it doesn't exist yet
+        if (!course.instructorIds) {
+            // If there was an old single instructor, keep them in the new list
+            course.instructorIds = course.instructorId ? [course.instructorId] : [];
+        }
+
+        // 2. Add the new instructor ONLY if not already in the list
+        if (!course.instructorIds.includes(instructorId)) {
+            course.instructorIds.push(instructorId);
+            
+            // *Keep legacy field populated with the first instructor so old code doesn't break*
+            if (!course.instructorId) {
+                course.instructorId = instructorId;
+            }
+        }
+
+        this.saveToStorage();
+        return course;
+    }
+    removeInstructorFromCourse(courseId, instructorId) {
+        const course = this.courses.find(c => c.id === courseId);
+        if (!course) throw new Error('Course not found');
+
+        if (course.instructorIds) {
+            // Filter out the instructor
+            course.instructorIds = course.instructorIds.filter(id => id !== instructorId);
+            
+            // If the legacy 'instructorId' field matches the one removing, update it
+            if (course.instructorId === instructorId) {
+                // Set it to the next available instructor, or null if empty
+                course.instructorId = course.instructorIds.length > 0 ? course.instructorIds[0] : null;
+            }
+        } else if (course.instructorId === instructorId) {
+            // Fallback for old data structure
+            course.instructorId = null;
+        }
+
+        this.saveToStorage();
+        return course;
+    }
+    getInstructorsForCourse(course) {
+        // Initialize IDs array from the new field 'instructorIds'
+        let ids = course.instructorIds || [];
+        
+        // Backward compatibility: If array is empty but the old single 'instructorId' exists, use it
+        if (ids.length === 0 && course.instructorId) {
+            ids = [course.instructorId];
+        }
+
+        // Remove duplicates just in case
+        ids = [...new Set(ids)];
+
+        // Map IDs to full user objects
+        return ids.map(id => {
+            // Try Advisor table first, then Instructor table
+            return this.getAdvisorById(id) || this.getInstructorById(id) || { firstName: 'Staff', lastName: '' };
+        });
+    }
+    getActiveCoursesWithEnrollments() {
+        // 1. Get all unique course IDs from enrollments (accepted students)
+        const activeCourseIds = [...new Set(this.enrollments.map(e => e.courseId))];
+        
+        // 2. Return the full course objects
+        return this.courses.filter(c => activeCourseIds.includes(c.id));
+    }
 
     getAssignmentsByStudent(studentId) {
         return this.assignments.filter(a => a.studentId === studentId);
@@ -447,6 +518,29 @@ class UniversityDB {
             .filter(a => a.dueDate >= today && a.status === 'pending')
             .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
             .slice(0, limit);
+    }
+    // --- NEW: Create Assignment with File ---
+    createAssignment(assignmentData) {
+        // assignmentData: { courseId, title, dueDate, fileName, fileData, fileType }
+        const maxId = (this.assignments || []).reduce((max, a) => Math.max(max, a.id || 0), 0);
+        
+        const newAssignment = {
+            id: maxId + 1,
+            ...assignmentData,
+            createdAt: new Date().toISOString(),
+            status: 'pending' // Initial status for students
+        };
+
+        this.assignments.push(newAssignment);
+        this.saveToStorage();
+        return newAssignment;
+    }
+    deleteAssignment(assignmentId) {
+        const index = this.assignments.findIndex(a => a.id === assignmentId);
+        if (index === -1) throw new Error('Assignment not found');
+        
+        this.assignments.splice(index, 1);
+        this.saveToStorage();
     }
 
     // Return academic history entries for a student

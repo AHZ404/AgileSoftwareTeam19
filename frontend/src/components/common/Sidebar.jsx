@@ -17,7 +17,7 @@ const Sidebar = ({ user, activeSection, onNavigate, onLogout, items }) => {
   };
 
   // Determine icon based on role
-  const userIcon = user.role === 'admin' ? 'user-shield' : (user.role === 'advisor' ? 'user-tie' : 'user-graduate');
+  const userIcon = user.role === 'admin' ? 'user-shield' : (user.role === 'advisor' ? 'user-tie' : (user.role === 'instructor' ? 'chalkboard-teacher' : 'user-graduate'));
 
   return (
     <div className="sidebar">
@@ -25,11 +25,12 @@ const Sidebar = ({ user, activeSection, onNavigate, onLogout, items }) => {
         <i className={`fas fa-${userIcon}`}></i>
         <div className="user-info">
           <h3>{user.firstName} {user.lastName}</h3>
-          <p>{user.role === 'student' ? `${user.major} ${user.level}` : (user.role === 'advisor' ? 'Academic Advisor' : 'System Admin')}</p>
+          <p>{user.role === 'student' ? `${user.major} ${user.level}` : (user.role === 'advisor' ? 'Academic Advisor' : (user.role === 'instructor' ? 'Course Instructor' : 'System Admin'))}</p>
         </div>
       </div>
       <div className="nav-menu">
-        {items.map(item => (
+        {/* ADDED || [] HERE TO FIX THE CRASH */}
+        {(items || []).map(item => (
           <a key={item.id} href="#" 
              className={`nav-item ${activeSection === item.id ? 'active' : ''}`}
              onClick={(e) => { e.preventDefault(); onNavigate(item.id); }}>
