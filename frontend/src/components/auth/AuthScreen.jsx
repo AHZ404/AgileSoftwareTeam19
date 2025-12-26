@@ -1,6 +1,4 @@
-import React, { useState } from 'react';
-// We don't strictly need universityDB for auth anymore, but keeping it for other app parts
-import { universityDB } from '../../utils/database'; 
+import React, { useState } from 'react'; 
 
 const AuthScreen = ({ onLogin }) => {
   const [activeTab, setActiveTab] = useState('login');
@@ -58,16 +56,10 @@ const AuthScreen = ({ onLogin }) => {
         onLogin(safeUser); 
         // --- SAFETY PATCH END ---
       } else {
-        setLoginMsg(data.message || 'Login failed.');
-      }
-      console.log("Server response:", data);
-
-      if (data.success) {
-        onLogin(data.user); // Success! Switch screens
-      } else {
         // Handle 401 or other API errors gracefully
         setLoginMsg(data.message || 'Login failed. Please try again.');
       }
+      console.log("Server response:", data);
 
     } catch (err) {
       console.error("Login Crash:", err);
@@ -93,7 +85,13 @@ const AuthScreen = ({ onLogin }) => {
       const lastName = parts.slice(1).join(' ') || '';
       
       // Generate a unique ID (e.g., STU + timestamp)
-      const newId = (regData.role === 'student' ? 'STU' : 'USR') + Date.now().toString().slice(-6);
+      
+      let prefix = 'USR';
+      if (regData.role === 'student') prefix = 'STU';
+      if (regData.role === 'instructor') prefix = 'INS';
+      if (regData.role === 'advisor') prefix = 'ADV';
+
+      const newId = prefix + Date.now().toString().slice(-6);
 
       const payload = {
         id: newId,

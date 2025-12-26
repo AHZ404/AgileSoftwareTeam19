@@ -27,8 +27,8 @@ const AdminBookings = () => {
   return (
     <div className="requests-grid">
       {bookings.map((booking) => {
-        const room = classrooms.find(r => r.id === booking.classroomId) || { name: 'Unknown Room', id: booking.classroomId };
-        const student = universityDB.getStudentById(booking.bookedBy) || universityDB.getAdvisorById(booking.bookedBy) || { firstName: 'Unknown', lastName: '', id: booking.bookedBy };
+        const room = roomMap[booking.classroomId] || { name: 'Unknown Room', id: booking.classroomId };
+        const student = userMap[booking.studentId] || { firstName: 'Unknown', lastName: '', id: booking.studentId };
 
         return (
           <div key={booking.id} className="request-item">

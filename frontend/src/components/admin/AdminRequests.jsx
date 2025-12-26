@@ -1,16 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { universityDB } from '../../utils/database';
 
 const AdminRequests = () => {
   const [requests, setRequests] = useState([]);
+  const [studentMap, setStudentMap] = useState({});
+  const [courseMap, setCourseMap] = useState({});
 
-  const loadRequests = () => {
-    universityDB.loadFromStorage();
-    // Sort by date descending (newest first)
-    const sortedRequests = [...(universityDB.courseRequests || [])].sort((a, b) => 
-        new Date(b.dateSubmitted) - new Date(a.dateSubmitted)
-    );
-    setRequests(sortedRequests);
+  const loadRequests = async () => {
+    try {
+      const [enrollmentsRes, studentsRes, coursesRes] = await Promise.all([
+        fetch('http://localhost:5000/api/enrollments'),
+        fetch('http://localhost:5000/api/entities/student'),
+        fetch('http://localhost:5000/api/entities/course')
+      ]);
+      
+      const enrollments = await enrollmentsRes.json();
+      const students = await studentsRes.json();
+      const courses = await coursesRes.json();
+      
+      const sMap = {};
+      const cMap = {};
+      
+      students.forEach(s => { sMap[s.id] = s; });
+      courses.forEach(c => { cMap[c.id] = c; });
+      
+      setStudentMap(sMap);
+      setCourseMap(cMap);
+      setRequests(enrollments);
+    } catch (err) {
+      console.error('Error loading requests:', err);
+      setRequests([]);
+    }
   };
 
   useEffect(() => {
@@ -19,17 +38,20 @@ const AdminRequests = () => {
 
   const handleDelete = (id) => {
     if (confirm('Are you sure you want to delete this course request?')) {
-      try {
-        const index = universityDB.courseRequests.findIndex(r => r.id === id);
-        if (index !== -1) {
-          universityDB.courseRequests.splice(index, 1);
-          universityDB.saveToStorage();
-          loadRequests(); // Refresh UI
-          alert('Request deleted successfully.');
-        }
-      } catch (e) {
-        alert('Error deleting request: ' + e.message);
-      }
+      deleteRequest(id);
+    }
+  };
+
+  const deleteRequest = async (id) => {
+    try {
+      await fetch(`http://localhost:5000/api/enrollments/${id}`, {
+        method: 'DELETE'
+      });
+      loadRequests();
+      alert('Request deleted successfully.');
+    } catch (err) {
+      console.error('Error deleting request:', err);
+      alert('Error deleting request: ' + err.message);
     }
   };
 
@@ -42,8 +64,8 @@ const AdminRequests = () => {
           <p className="placeholder-text">No course requests found.</p>
         ) : (
           requests.map(request => {
-            const course = universityDB.getCourseById(request.courseId) || { title: 'Unknown Course' };
-            const student = universityDB.getStudentById(request.studentId) || { firstName: 'Unknown', lastName: '' };
+            const course = courseMap[request.courseId] || { title: 'Unknown Course' };
+            const student = studentMap[request.studentId] || { firstName: 'Unknown', lastName: '' };
 
             return (
               <div key={request.id} className="request-item" style={{ 

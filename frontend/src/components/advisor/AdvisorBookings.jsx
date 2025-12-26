@@ -1,72 +1,109 @@
 import React, { useState, useEffect } from 'react';
-import { universityDB } from '../../utils/database';
 
 const AdvisorBookings = ({ currentUser }) => {
   const [bookings, setBookings] = useState([]);
-  const [classrooms, setClassrooms] = useState([]);
+  const [userMap, setUserMap] = useState({});
 
-  const loadData = () => {
-    universityDB.loadFromStorage();
-    setBookings(universityDB.getAllBookings() || []);
-    setClassrooms(universityDB.getAllClassrooms() || []);
+  const loadData = async () => {
+    try {
+      // 1. Fetch All Enrollments
+      const enrollmentsRes = await fetch('http://localhost:5000/api/enrollments');
+      const enrollmentsData = await enrollmentsRes.json() || [];
+      
+      // --- FIX: Convert SQL PascalCase to camelCase ---
+      const cleanEnrollments = enrollmentsData.map(e => ({
+          id: e.Id,
+          studentId: e.StudentId,
+          courseId: e.CourseId,
+          status: e.Status || 'pending', // Default to pending if null
+          reason: e.Reason
+      }));
+
+      // 2. Fetch User Info (To show names instead of IDs)
+      const entitiesRes = await fetch('http://localhost:5000/api/entities');
+      const entitiesData = await entitiesRes.json() || [];
+      
+      const uMap = {};
+      entitiesData.forEach(e => {
+        // Backend /api/entities already handles lowercase conversion, so this is safe
+        uMap[e.id] = e;
+      });
+      setUserMap(uMap);
+      
+      setBookings(cleanEnrollments);
+
+    } catch (err) {
+      console.error('Error loading bookings:', err);
+    }
   };
 
   useEffect(() => {
     loadData();
   }, []);
 
-  const handleStatusChange = (id, newStatus) => {
+  const handleStatusChange = async (id, newStatus) => {
     if (confirm(`${newStatus === 'approved' ? 'Approve' : 'Reject'} this booking?`)) {
-      universityDB.setBookingStatus(id, newStatus);
-      loadData();
+      try {
+        const res = await fetch(`http://localhost:5000/api/enrollments/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: newStatus })
+        });
+        
+        if (res.ok) {
+            loadData(); // Refresh list to see the green/red status change
+        } else {
+            alert("Failed to update status");
+        }
+      } catch (err) {
+        console.error('Error updating booking:', err);
+      }
     }
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     if (confirm('Cancel this booking?')) {
-      universityDB.deleteBooking(id);
-      loadData();
+      try {
+        await fetch(`http://localhost:5000/api/enrollments/${id}`, { method: 'DELETE' });
+        loadData();
+      } catch (err) {
+        console.error('Error deleting booking:', err);
+      }
     }
   };
 
   if (bookings.length === 0) {
-    return <p className="placeholder-text">No bookings found.</p>;
+    return <p className="placeholder-text">No bookings found in database.</p>;
   }
 
   return (
     <div className="requests-grid">
       {bookings.map((booking) => {
-        const room = classrooms.find(r => r.id === booking.classroomId) || { name: 'Unknown Room', id: booking.classroomId };
-        const student = universityDB.getStudentById(booking.bookedBy) || universityDB.getAdvisorById(booking.bookedBy) || { firstName: 'Unknown', lastName: '', id: booking.bookedBy };
-        const isOwnBooking = booking.bookedBy === currentUser.id;
+        // Safe User Lookup
+        const user = userMap[booking.studentId] || { firstName: 'Unknown', lastName: `(${booking.studentId})` };
+        const isOwnBooking = booking.studentId === currentUser.id;
 
         return (
-          <div key={booking.id} className="request-item">
+          <div key={booking.id} className="request-item" style={{
+              borderLeft: `5px solid ${booking.status === 'approved' ? 'green' : booking.status === 'rejected' ? 'red' : 'orange'}`
+          }}>
             <div className="request-header">
               <div className="request-info">
-                <h4>{room.id}: {room.name}</h4>
+                <h4>Course: {booking.courseId}</h4>
                 <div className="request-meta">
-                  Booked by: {student.firstName} {student.lastName} ({student.id}) | 
-                  Date: {booking.date} {booking.startTime}-{booking.endTime}
+                  Requested by: <strong>{user.firstName} {user.lastName}</strong>
                 </div>
               </div>
-              <span className={`request-status status-${booking.status || 'pending'}`}>
-                {(booking.status || 'pending').toUpperCase()}
+              <span className={`request-status status-${booking.status}`}>
+                {booking.status.toUpperCase()}
               </span>
             </div>
-            <p className="request-reason"><strong>Purpose:</strong> {booking.purpose || 'N/A'}</p>
+            <p className="request-reason"><strong>Reason:</strong> {booking.reason || 'N/A'}</p>
             
             <div className="request-actions">
-              {isOwnBooking ? (
-                // Advisor's own booking: Can only Cancel (Edit omitted for brevity as per original strict logic)
-                <button className="btn btn-danger" onClick={() => handleDelete(booking.id)}>Cancel</button>
-              ) : (
-                // Student booking: Approve or Reject
-                <>
-                  <button className="btn btn-success" onClick={() => handleStatusChange(booking.id, 'approved')}>Approve</button>
-                  <button className="btn btn-danger" onClick={() => handleStatusChange(booking.id, 'rejected')}>Reject</button>
-                </>
-              )}
+               {/* Advisors can Approve/Reject student requests */}
+               <button className="btn btn-success" onClick={() => handleStatusChange(booking.id, 'approved')}>Approve</button>
+               <button className="btn btn-danger" onClick={() => handleStatusChange(booking.id, 'rejected')}>Reject</button>
             </div>
           </div>
         );

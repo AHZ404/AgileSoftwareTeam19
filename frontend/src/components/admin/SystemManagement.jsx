@@ -1,44 +1,53 @@
 import React from 'react';
-import { universityDB } from '../../utils/database';
 
 const SystemManagement = () => {
 
-  const handleResetDatabase = () => {
+  const handleResetDatabase = async () => {
     if (!confirm('This will reset ALL system data to default demo state. This action cannot be undone. Are you sure?')) return;
     
     try {
-      localStorage.removeItem('universityDB_initialized');
-      universityDB.initializeData();
-      universityDB.loadFromStorage();
+      const response = await fetch('/api/admin/reset-system', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       alert('System data has been reset to default demo state.');
-      window.location.reload(); // Reload to reflect changes globally
-    } catch (err) {
-      alert('Error resetting system: ' + err.message);
+      window.location.reload();
+    } catch (error) {
+      console.error('Error resetting system:', error);
+      alert('Error resetting system: ' + error.message);
     }
   };
 
-  const handleResetPasswords = () => {
+  const handleResetPasswords = async () => {
     if (!confirm('This will reset ALL user passwords to "0000". Are you sure?')) return;
     
     try {
-      const allUsers = [...universityDB.students, ...universityDB.advisors, ...universityDB.admins];
-      allUsers.forEach(u => u.password = '0000');
-      universityDB.saveToStorage();
+      const response = await fetch('/api/admin/reset-passwords', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       alert('All user passwords have been reset to "0000".');
-    } catch (err) {
-      alert('Error resetting passwords: ' + err.message);
+    } catch (error) {
+      console.error('Error resetting passwords:', error);
+      alert('Error resetting passwords: ' + error.message);
     }
   };
 
-  const handleClearRequests = () => {
+  const handleClearRequests = async () => {
     if (!confirm('This will remove ALL pending course requests. Are you sure?')) return;
     
     try {
-      universityDB.courseRequests = universityDB.courseRequests.filter(req => req.status !== 'pending');
-      universityDB.saveToStorage();
+      const response = await fetch('/api/admin/clear-pending-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       alert('All pending course requests have been cleared.');
-    } catch (err) {
-      alert('Error clearing requests: ' + err.message);
+    } catch (error) {
+      console.error('Error clearing requests:', error);
+      alert('Error clearing requests: ' + error.message);
     }
   };
 

@@ -1,41 +1,52 @@
 import React, { useState, useEffect } from 'react';
-import { universityDB } from '../../utils/database';
-
-// Helper to refresh data
-const useForceUpdate = () => {
-    const [_, setTick] = useState(0);
-    return () => setTick(t => t + 1);
-};
 
 const InstructorDashboard = ({ user }) => {
-  const forceUpdate = useForceUpdate();
   const [stats, setStats] = useState({ coursesManaged: 0, activeBookings: 0, pendingGrades: 0 });
   const [myCourses, setMyCourses] = useState([]);
   const [recentBookings, setRecentBookings] = useState([]);
 
   // Load Data
-  const loadData = () => {
-    universityDB.loadFromStorage();
+  const loadData = async () => {
+    try {
+      // 1. Fetch Courses (Fast View)
+      const coursesRes = await fetch('http://localhost:5000/api/courses');
+      const allCourses = await coursesRes.json() || [];
+      
+      // Filter: Only courses taught by this instructor
+      const instructorCourses = allCourses
+        .filter(c => c.InstructorID === user.id)
+        .map(c => ({
+            id: c.CourseID,
+            title: c.Title,
+            location: 'Main Campus', // View doesn't have location column yet, using placeholder
+            schedule: `${c.ScheduleDay} ${c.ScheduleTime}`,
+            color: c.Color
+        }));
+      
+      // 2. Fetch Room Bookings
+      const bookingsRes = await fetch('http://localhost:5000/api/bookings');
+      const allBookings = await bookingsRes.json() || [];
 
-    // 1. Get Courses managed by this instructor
-    const allCourses = universityDB.getAllCourses();
-    const instructorCourses = allCourses.filter(c => {
-        const ids = c.instructorIds || [];
-        const effectiveIds = ids.length > 0 ? ids : (c.instructorId ? [c.instructorId] : []);
-        return effectiveIds.includes(user.id);
-    });
+      // Normalize Bookings
+      const myBookings = allBookings.map(b => ({
+          id: b.BookingID,
+          room: b.Room,
+          date: b.Date,
+          status: b.Status
+      })).slice(0, 5); // Just show top 5 recent
 
-    // 2. Get Bookings
-    const bookings = universityDB.getBookingsByStudent(user.id);
+      setStats({
+        coursesManaged: instructorCourses.length,
+        activeBookings: allBookings.length, // Showing total system bookings for context (or filter if View had UserID)
+        pendingGrades: 0 // Placeholder
+      });
 
-    setStats({
-      coursesManaged: instructorCourses.length,
-      activeBookings: bookings.length,
-      pendingGrades: 0 // Placeholder
-    });
+      setMyCourses(instructorCourses);
+      setRecentBookings(myBookings);
 
-    setMyCourses(instructorCourses);
-    setRecentBookings(bookings);
+    } catch (err) {
+      console.error('Error loading instructor dashboard:', err);
+    }
   };
 
   useEffect(() => {
@@ -59,7 +70,7 @@ const InstructorDashboard = ({ user }) => {
         <div className="stat-card info">
           <i className="fas fa-door-open"></i>
           <div className="stat-info">
-            <p>Classroom Bookings</p>
+            <p>Total Bookings</p>
             <span className="stat-value">{stats.activeBookings}</span>
           </div>
         </div>
@@ -82,7 +93,13 @@ const InstructorDashboard = ({ user }) => {
           <h3 style={{ color: 'var(--secondary)', borderBottom: '2px solid #e9ecef', paddingBottom: '10px', marginBottom: '15px' }}>My Active Courses</h3>
           
           <div className="courses-grid">
-             {myCourses.length === 0 ? <p className="placeholder-text">No courses assigned yet.</p> : myCourses.map(c => (
+             {myCourses.length === 0 ? (
+                <div className="placeholder-text">
+                    <p>No courses assigned.</p>
+                    <small>Go to "Assign Course" to select your classes.</small>
+                </div>
+             ) : (
+                myCourses.map(c => (
                 <div key={c.id} className="course-card" style={{
                     borderTop: `4px solid ${c.color || 'var(--primary)'}`,
                     borderRadius: '8px',
@@ -96,11 +113,10 @@ const InstructorDashboard = ({ user }) => {
                 }}>
                   <div>
                     <h4 style={{ margin: '0 0 5px 0', fontSize: '1.1rem', color: '#333' }}>{c.id}: {c.title}</h4>
-                    <p style={{ color: '#6c757d', fontSize: '0.9rem', margin: 0 }}>Location: {c.location}</p>
                     <p style={{ color: '#6c757d', fontSize: '0.9rem', margin: 0 }}>Schedule: {c.schedule}</p>
                   </div>
                 </div>
-             ))}
+             )))}
           </div>
         </div>
 
@@ -108,13 +124,13 @@ const InstructorDashboard = ({ user }) => {
         <div className="widget small">
            <h3 style={{ color: 'var(--secondary)', borderBottom: '2px solid #e9ecef', paddingBottom: '10px', marginBottom: '15px' }}>Recent Bookings</h3>
            <div className="assignments-list">
-             {recentBookings.length === 0 ? <p className="placeholder-text">No active bookings.</p> : recentBookings.slice(0, 3).map(b => (
-               <div key={b.id} className="assignment-item">
+             {recentBookings.length === 0 ? <p className="placeholder-text">No active bookings.</p> : recentBookings.map(b => (
+               <div key={b.id} className="assignment-item" style={{ borderLeft: `4px solid ${b.status === 'approved' ? 'green' : 'orange'}` }}>
                  <div className="assignment-name">
-                    Room {b.classroomId}
-                    <div style={{fontSize:'0.8rem', color:'#666'}}>{b.date} ({b.startTime})</div>
+                   {b.room}
+                   <div style={{fontSize:'0.8rem', color:'#666'}}>{b.date}</div>
                  </div>
-                 <div className="priority low">Approved</div>
+                 <div className={`priority ${b.status === 'approved' ? 'low' : 'high'}`} style={{textTransform:'uppercase'}}>{b.status}</div>
                </div>
              ))}
            </div>

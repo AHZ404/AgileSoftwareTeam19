@@ -8,27 +8,27 @@ import InstructorCourses from './InstructorCourses';
 const InstructorApp = ({ user, onLogout }) => {
   const [activeTab, setActiveTab] = useState('dashboard');
 
-  // 1. Define the menu items explicitly
+  // --- UPDATED: IDs match Sidebar iconMap for visual consistency ---
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'book-classrooms', label: 'Book Classrooms' },
-    { id: 'course-assignment', label: 'Course Assignment' },
-    { id: 'courses', label: 'My Courses' },
-    { id: 'grading', label: 'Student Grading' },
-    { id: 'schedule', label: 'Schedule' },
+    { id: 'dashboard',         label: 'Dashboard' },
+    { id: 'classrooms',        label: 'Book Classrooms' }, // Changed from 'book-classrooms' to match icon 'door-open'
+    { id: 'course-assignment', label: 'Assign Course' },   // Self-assign to teach a course
+    { id: 'courses',           label: 'My Courses' },      // Manage Assignments/Materials
+    { id: 'grades',            label: 'Student Grading' }, // Changed from 'grading' to match icon
+    { id: 'schedule',          label: 'Schedule' },
   ];
 
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
         return <InstructorDashboard user={user} />;
-      case 'book-classrooms':
+      case 'classrooms': // Updated ID
         return <InstructorBookings user={user} />;
-       case 'course-assignment':
+      case 'course-assignment':
         return <InstructorCourseAssignment user={user} />; 
       case 'courses':
         return <InstructorCourses user={user} />;
-        case 'grading':
+      case 'grades': // Updated ID
         return <div className="content-section"><h2>Student Grading (Coming Soon)</h2></div>;
       case 'schedule':
         return <div className="content-section"><h2>Schedule (Coming Soon)</h2></div>;
@@ -39,7 +39,6 @@ const InstructorApp = ({ user, onLogout }) => {
 
   return (
     <div className="container" id="instructor-app-screen">
-      {/* 2. Pass menuItems to the 'items' prop */}
       <Sidebar 
         user={user} 
         activeSection={activeTab} 

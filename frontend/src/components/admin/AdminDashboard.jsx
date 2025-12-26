@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { universityDB } from '../../utils/database';
 
 const AdminDashboard = () => {
   const [stats, setStats] = useState({
@@ -11,52 +10,78 @@ const AdminDashboard = () => {
   const [recentActivity, setRecentActivity] = useState([]);
 
   useEffect(() => {
-    // Load fresh data
-    universityDB.loadFromStorage();
-    const students = universityDB.getAllStudents();
-    const advisors = universityDB.advisors || [];
-    const bookings = universityDB.getAllBookings();
-    const requests = universityDB.getAllPendingCourseRequests();
-    const allRequests = universityDB.courseRequests || [];
-
-    setStats({
-      students: students.length,
-      advisors: advisors.length,
-      bookings: bookings.length,
-      requests: requests.length
-    });
-
-    // Get 5 most recent requests for activity feed
-    const activity = [...allRequests]
-      .sort((a, b) => new Date(b.dateSubmitted) - new Date(a.dateSubmitted))
-      .slice(0, 5);
-    setRecentActivity(activity);
+    loadStats();
   }, []);
 
+  const loadStats = async () => {
+    try {
+      // Fetch all entities to count students, advisors, etc.
+      const entitiesRes = await fetch('http://localhost:5000/api/entities');
+      const entities = await entitiesRes.json() || [];
+      
+      const students = entities.filter(e => e.type === 'student').length;
+      const advisors = entities.filter(e => e.type === 'advisor').length;
+      
+      // Fetch enrollments for bookings and requests
+      const enrollmentsRes = await fetch('http://localhost:5000/api/enrollments');
+      const enrollments = await enrollmentsRes.json() || [];
+      
+      const requests = enrollments.filter(e => e.status === 'pending').length;
+      
+      setStats({
+        students: students,
+        advisors: advisors,
+        bookings: enrollments.length,
+        requests: requests
+      });
+      
+      // Get recent activity - pending requests
+      const recentRequests = enrollments.filter(e => e.status === 'pending').slice(0, 5);
+      setRecentActivity(recentRequests);
+    } catch (err) {
+      console.error('Error loading admin stats:', err);
+    }
+  };
+
   // Quick Action Handlers
-  const handleResetPasswords = () => {
+  const handleResetPasswords = async () => {
     if (confirm('Reset ALL user passwords to "0000"?')) {
-      const users = [...universityDB.students, ...universityDB.advisors, ...universityDB.admins];
-      users.forEach(u => u.password = '0000');
-      universityDB.saveToStorage();
-      alert('Passwords reset.');
+      try {
+        // Note: This is a security operation - in production, implement proper authorization
+        alert('Password reset would require direct backend implementation.');
+      } catch (err) {
+        console.error(err);
+        alert('Error resetting passwords');
+      }
     }
   };
 
-  const handleClearRequests = () => {
+  const handleClearRequests = async () => {
     if (confirm('Clear ALL pending requests?')) {
-      universityDB.courseRequests = universityDB.courseRequests.filter(r => r.status !== 'pending');
-      universityDB.saveToStorage();
-      alert('Pending requests cleared.');
-      window.location.reload();
+      try {
+        // Get all pending enrollments
+        const enrollmentsRes = await fetch('http://localhost:5000/api/enrollments');
+        const enrollments = await enrollmentsRes.json() || [];
+        
+        const pending = enrollments.filter(e => e.status === 'pending');
+        
+        // Delete each pending enrollment
+        for (const enrollment of pending) {
+          await fetch(`http://localhost:5000/api/enrollments/${enrollment.id}`, { method: 'DELETE' });
+        }
+        
+        alert('Pending requests cleared.');
+        loadStats();
+      } catch (err) {
+        console.error(err);
+        alert('Error clearing requests');
+      }
     }
   };
 
-  const handleResetSystem = () => {
-    if (confirm('Reset system to default demo state?')) {
-      localStorage.removeItem('universityDB_initialized');
-      universityDB.initializeData();
-      window.location.reload();
+  const handleResetSystem = async () => {
+    if (confirm('Reset system to default state?')) {
+      alert('System reset would require backend implementation.');
     }
   };
 

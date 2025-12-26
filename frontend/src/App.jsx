@@ -1,51 +1,74 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import './assets/styles.css';
-import { universityDB } from './utils/database';
 import AuthScreen from './components/auth/AuthScreen';
 import StudentApp from './components/student/StudentApp';
 import AdvisorApp from './components/advisor/AdvisorApp';
 import AdminApp from './components/admin/AdminApp';
-import InstructorApp from './components/instructor/InstructorApp';``
+import InstructorApp from './components/instructor/InstructorApp';`` 
 
 const App = () => {
-  const [currentUser, setCurrentUser] = useState(null);
+  const [user, setUser] = useState(null);
 
-  useEffect(() => {
-    const savedUser = localStorage.getItem('currentUser');
-    if (savedUser) {
-      try {
-        const parsed = JSON.parse(savedUser);
-        if (parsed && (parsed.role === 'student' || parsed.role === 'advisor' || parsed.role === 'admin' || parsed.role === 'instructor')) {
-          setCurrentUser(parsed);
-        }
-      } catch (e) {
-        localStorage.removeItem('currentUser');
-      }
-    }
-  }, []);
+  // --- CRASH PROOF LOGIN HANDLER ---
+  const handleLogin = (userData) => {
+    console.log("App received user:", userData);
 
-  const handleLogin = (user) => {
-    setCurrentUser(user);
-    localStorage.setItem('currentUser', JSON.stringify(user));
+    // 1. Sanitize the user object to prevent crashes
+    // If any field is missing, we default it to an empty string or safe value
+    const safeUser = {
+        id:        userData.id || "UNKNOWN_ID",
+        firstName: userData.firstName || userData.FirstName || "User",
+        lastName:  userData.lastName  || userData.LastName  || "",
+        email:     userData.email     || userData.Email     || "",
+        role:      (userData.role || userData.Role || "student").toLowerCase(), // Ensure lowercase for checks
+        major:     userData.major     || userData.Major     || "Undeclared"
+    };
+
+    console.log("Setting Safe User:", safeUser);
+    setUser(safeUser);
   };
 
   const handleLogout = () => {
-    setCurrentUser(null);
-    localStorage.removeItem('currentUser');
+    setUser(null);
   };
 
-  if (!currentUser) {
+  // --- RENDER LOGIC ---
+  if (!user) {
     return <AuthScreen onLogin={handleLogin} />;
   }
 
-  return (
-    <>
-      {currentUser.role === 'student' && <StudentApp user={currentUser} onLogout={handleLogout} />}
-      {currentUser.role === 'advisor' && <AdvisorApp user={currentUser} onLogout={handleLogout} />}
-      {currentUser.role === 'admin' && <AdminApp user={currentUser} onLogout={handleLogout} />}
-      {currentUser.role === 'instructor' && <InstructorApp user={currentUser} onLogout={handleLogout} />}
-    </>
-  );
+  // Render the correct app based on the sanitized role
+  try {
+      if (user.role === 'student') {
+        return <StudentApp user={user} onLogout={handleLogout} />;
+      } 
+      else if (user.role === 'instructor') {
+        return <InstructorApp user={user} onLogout={handleLogout} />;
+      } 
+      else if (user.role === 'advisor') {
+        return <AdvisorApp user={user} onLogout={handleLogout} />;
+      } 
+      else {
+        // Fallback for unknown roles (Prevents White Screen)
+        return (
+            <div style={{ padding: 20, textAlign: 'center' }}>
+                <h2>Unknown Role: {user.role}</h2>
+                <p>Please contact support.</p>
+                <button className="btn btn-secondary" onClick={handleLogout}>Logout</button>
+            </div>
+        );
+      }
+  } catch (error) {
+      // Last resort error boundary
+      console.error("Dashboard Render Crash:", error);
+      return (
+          <div style={{ padding: 20, color: 'red' }}>
+              <h2>Application Error</h2>
+              <p>{error.message}</p>
+              <button onClick={handleLogout}>Reset</button>
+          </div>
+      );
+  }
 };
 
 export default App;

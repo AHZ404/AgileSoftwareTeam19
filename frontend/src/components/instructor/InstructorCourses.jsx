@@ -1,27 +1,82 @@
 import React, { useState, useEffect } from 'react';
-import { universityDB } from '../../utils/database';
 import CourseManager from './CourseManager';
 
 const InstructorCourses = ({ user }) => {
   const [myCourses, setMyCourses] = useState([]);
+  const [enrollmentMap, setEnrollmentMap] = useState({}); // Stores list of students per course
   const [selectedCourse, setSelectedCourse] = useState(null);
   
-  // --- NEW: State for viewing student list ---
+  // Modal for viewing students
   const [viewingStudentsCourse, setViewingStudentsCourse] = useState(null);
+  const [currentStudentList, setCurrentStudentList] = useState([]);
 
   useEffect(() => {
-    universityDB.loadFromStorage();
-    const allCourses = universityDB.getAllCourses();
-    const filtered = allCourses.filter(c => {
-        const ids = c.instructorIds || [];
-        const effectiveIds = ids.length > 0 ? ids : (c.instructorId ? [c.instructorId] : []);
-        return effectiveIds.includes(user.id);
-    });
-    setMyCourses(filtered);
+    loadCourses();
   }, [user.id]);
 
+  const loadCourses = async () => {
+    try {
+      // 1. Fetch ALL Courses (Fast View)
+      const coursesRes = await fetch('http://localhost:5000/api/courses');
+      const allCourses = await coursesRes.json() || [];
+
+      // 2. Filter: Only courses where "InstructorID" matches current user
+      const myTeachingCourses = allCourses.filter(c => c.InstructorID === user.id);
+      setMyCourses(myTeachingCourses);
+
+      // 3. Fetch Enrollment Counts (Optimized)
+      // We fetch all enrollments once to count them. 
+      // Note: In a huge real app, we'd make a specific SQL query count, 
+      // but for this size, fetching /api/enrollments is fine.
+      const enrollRes = await fetch('http://localhost:5000/api/enrollments');
+      const allEnrollments = await enrollRes.json() || [];
+
+      // Group enrollments by CourseID
+      const eMap = {};
+      allEnrollments.forEach(e => {
+          // Normalize keys (API returns PascalCase, we need consistent access)
+          const cId = e.CourseId || e.courseId;
+          if (!eMap[cId]) eMap[cId] = [];
+          eMap[cId].push(e);
+      });
+      setEnrollmentMap(eMap);
+
+    } catch (err) {
+      console.error('Error loading courses:', err);
+    }
+  };
+
+  // --- Helper to load student names for a specific course ---
+  const handleViewStudents = async (course) => {
+    setViewingStudentsCourse(course);
+    setCurrentStudentList([]); // Clear previous list
+
+    const enrollments = enrollmentMap[course.CourseID] || [];
+    if (enrollments.length === 0) return;
+
+    // Fetch details for these specific students only
+    const studentPromises = enrollments.map(async (e) => {
+        try {
+            const sid = e.StudentId || e.studentId;
+            const res = await fetch(`http://localhost:5000/api/entity/${sid}`);
+            const sData = await res.json();
+            return {
+                id: sid,
+                name: `${sData.firstName} ${sData.lastName}`,
+                status: e.Status || e.status
+            };
+        } catch (err) {
+            return { id: e.StudentId, name: 'Unknown Student', status: 'error' };
+        }
+    });
+
+    const resolvedStudents = await Promise.all(studentPromises);
+    setCurrentStudentList(resolvedStudents);
+  };
+
   if (selectedCourse) {
-    return <CourseManager course={selectedCourse} onBack={() => setSelectedCourse(null)} />;
+    // Pass the normalized course object
+    return <CourseManager course={{...selectedCourse, id: selectedCourse.CourseID}} onBack={() => setSelectedCourse(null)} />;
   }
 
   return (
@@ -30,58 +85,55 @@ const InstructorCourses = ({ user }) => {
 
       <div className="courses-grid">
         {myCourses.length === 0 ? (
-          <p className="placeholder-text">You have not assigned yourself to any courses yet.</p>
+          <div className="placeholder-text" style={{ gridColumn: '1 / -1' }}>
+             <p>You are not assigned to any courses.</p>
+             <button className="btn btn-secondary" style={{marginTop:'10px'}}>Go to Course Assignment</button>
+          </div>
         ) : (
           myCourses.map(course => {
-            const enrollments = (universityDB.enrollments || []).filter(e => e.courseId === course.id);
-            const enrolledCount = enrollments.length;
+            // Note: SQL View returns PascalCase 'CourseID'
+            const enrollments = enrollmentMap[course.CourseID] || [];
+            const enrolledCount = enrollments.filter(e => (e.Status||e.status) === 'approved').length;
+            const pendingCount = enrollments.filter(e => (e.Status||e.status) === 'pending').length;
 
             return (
-              <div key={course.id} className="course-card" style={{ 
-                  borderTop: `5px solid ${course.color || 'var(--primary)'}`,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  minHeight: '200px'
+              <div key={course.CourseID} className="course-card" style={{ 
+                  borderTop: `5px solid ${course.Color || 'var(--primary)'}`,
+                  display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '220px'
               }}>
                 <div>
                     <div className="course-header">
-                      <h4>{course.id}: {course.title}</h4>
-                      <span className="course-credits">{course.credits} Credits</span>
+                      <h4>{course.CourseID}: {course.Title}</h4>
+                      <span className="course-credits">{course.Credits} Credits</span>
                     </div>
                     
                     <p style={{ marginTop: '10px', color: '#666', fontSize: '0.9rem' }}>
-                      <i className="fas fa-clock" style={{ width: '20px' }}></i> {course.schedule}
-                    </p>
-                    <p style={{ marginTop: '5px', color: '#666', fontSize: '0.9rem' }}>
-                      <i className="fas fa-map-marker-alt" style={{ width: '20px' }}></i> {course.location}
+                      <i className="fas fa-clock" style={{ width: '20px' }}></i> {course.ScheduleDay} {course.ScheduleTime}
                     </p>
 
-                    {/* --- UPDATED: Clickable/Hoverable Students Enrolled Area --- */}
+                    {/* --- Clickable Student Stats --- */}
                     <div 
                       className="enrolled-students-trigger"
-                      onClick={() => setViewingStudentsCourse(course)}
+                      onClick={() => handleViewStudents(course)}
                       style={{ 
-                        marginTop: '15px', 
-                        padding: '10px', 
-                        backgroundColor: '#f8f9fa', 
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease'
+                        marginTop: '15px', padding: '10px', backgroundColor: '#f8f9fa', 
+                        borderRadius: '4px', cursor: 'pointer', border: '1px solid #eee'
                       }}
-                      // Inline hover simulation (Note: CSS classes are preferred for hover)
-                      onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#e9ecef'}
-                      onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
                     >
-                        <span style={{ fontWeight: '600', color: 'var(--secondary)' }}>
-                            <i className="fas fa-user-graduate"></i> {enrolledCount} Students Enrolled
-                        </span>
+                        <div style={{ fontWeight: '600', color: 'var(--secondary)' }}>
+                            <i className="fas fa-user-graduate"></i> {enrolledCount} Active Students
+                        </div>
+                        {pendingCount > 0 && (
+                            <div style={{ fontSize:'0.85rem', color: 'orange', marginTop:'5px' }}>
+                                <i className="fas fa-exclamation-circle"></i> {pendingCount} Pending Approval
+                            </div>
+                        )}
                     </div>
                 </div>
 
                 <div className="course-footer" style={{ marginTop: '20px', borderTop: '1px solid #eee', paddingTop: '15px' }}>
                   <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => setSelectedCourse(course)}>
-                    Manage Course
+                    Manage Course Content
                   </button>
                 </div>
               </div>
@@ -90,32 +142,42 @@ const InstructorCourses = ({ user }) => {
         )}
       </div>
 
-      {/* --- NEW: Enrolled Students Modal --- */}
+      {/* --- Student List Modal --- */}
       {viewingStudentsCourse && (
         <div className="modal" style={{ display: 'flex' }}>
-          <div className="modal-content" style={{ maxWidth: '400px' }}>
+          <div className="modal-content" style={{ maxWidth: '500px' }}>
             <div className="modal-header">
-              <h3>Students: {viewingStudentsCourse.id}</h3>
+              <h3>Students: {viewingStudentsCourse.Title}</h3>
               <span className="close" onClick={() => setViewingStudentsCourse(null)}>&times;</span>
             </div>
-            <div className="modal-body">
+            <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
               <div className="assignments-list">
-                {(() => {
-                  const enrollments = (universityDB.enrollments || []).filter(e => e.courseId === viewingStudentsCourse.id);
-                  if (enrollments.length === 0) return <p className="placeholder-text">No students enrolled.</p>;
-                  
-                  return enrollments.map(e => {
-                    const student = universityDB.getStudentById(e.studentId);
-                    return (
-                      <div key={e.studentId} className="assignment-item" style={{ borderLeftColor: 'var(--success)' }}>
+                {currentStudentList.length === 0 ? (
+                    <p className="placeholder-text">Loading student list...</p>
+                ) : (
+                    currentStudentList.map(s => (
+                      <div key={s.id} className="assignment-item" style={{ 
+                          borderLeft: `4px solid ${s.status === 'approved' ? 'green' : 'orange'}`,
+                          padding: '10px'
+                      }}>
                         <div className="assignment-name">
-                          {student ? `${student.firstName} ${student.lastName}` : `Student ID: ${e.studentId}`}
+                          {s.name}
                         </div>
-                        <div className="assignment-details">ID: {e.studentId}</div>
+                        <div className="assignment-details" style={{ display:'flex', justifyContent:'space-between', width:'100%' }}>
+                            <span>ID: {s.id}</span>
+                            <span style={{ 
+                                textTransform: 'uppercase', 
+                                fontSize: '0.75rem', 
+                                fontWeight:'bold',
+                                color: s.status === 'approved' ? 'green' : 'orange' 
+                            }}>{s.status}</span>
+                        </div>
                       </div>
-                    );
-                  });
-                })()}
+                    ))
+                )}
+                {currentStudentList.length === 0 && enrollmentMap[viewingStudentsCourse.CourseID]?.length === 0 && (
+                    <p className="placeholder-text">No students enrolled yet.</p>
+                )}
               </div>
             </div>
             <div className="modal-footer">

@@ -1,93 +1,157 @@
 import React, { useState, useEffect } from 'react';
-import { universityDB } from '../../utils/database';
 
-// Helper to refresh data
-const useForceUpdate = () => {
-    const [_, setTick] = useState(0);
-    return () => setTick(t => t + 1);
-};
-
-const StudentDashboard = ({ user }) => {
-  const forceUpdate = useForceUpdate();
+const StudentDashboard = ({ user, navigateTo }) => {
   const [stats, setStats] = useState({ enrolled: 0, pending: 0, completed: 0, gpa: 0 });
   const [enrolledCourses, setEnrolledCourses] = useState([]);
-  const [upcomingAssignments, setUpcomingAssignments] = useState([]);
-  
-  // Widgets State
   const [availableCourses, setAvailableCourses] = useState([]);
   const [myRequests, setMyRequests] = useState([]);
+  const [instructorMap, setInstructorMap] = useState({}); // Stores names like { 'INS001': 'Dr. Smith' }
 
-  // Modal State for Materials
+  // Modal State
   const [materialsModalOpen, setMaterialsModalOpen] = useState(false);
   const [selectedCourseMaterials, setSelectedCourseMaterials] = useState(null);
+  const [courseMaterialsList, setCourseMaterialsList] = useState([]); // Stores actual files
 
-  // Modal State for Course Registration
+  // Request Modal
   const [requestModalOpen, setRequestModalOpen] = useState(false);
   const [selectedRequestCourse, setSelectedRequestCourse] = useState(null);
   const [requestReason, setRequestReason] = useState('');
-
-  // Load Data
-  const loadData = () => {
-    universityDB.loadFromStorage();
-    setStats({
-      enrolled: universityDB.getCoursesByStudent(user.id).length,
-      pending: universityDB.getPendingAssignmentsCount(user.id),
-      completed: universityDB.getCompletedAssignmentsCount(user.id),
-      gpa: universityDB.getStudentGPA(user.id)
-    });
-    setEnrolledCourses(universityDB.getCoursesByStudent(user.id));
-    setUpcomingAssignments(universityDB.getUpcomingAssignments(user.id));
-    
-    // Load data for new widgets
-    setAvailableCourses(universityDB.getAvailableCoursesForStudent(user.id));
-    setMyRequests(universityDB.getCourseRequestsByStudent(user.id));
-  };
 
   useEffect(() => {
     loadData();
   }, [user.id]);
 
-  // Materials Modal Handlers
-  const openMaterialsModal = (course) => {
+  const loadData = async () => {
+    try {
+      // 1. Fetch Enrolled Courses
+      const myCoursesRes = await fetch(`http://localhost:5000/api/my-courses/${user.id}`);
+      const myCoursesData = await myCoursesRes.json() || [];
+      
+      // Normalize Enrolled Data
+      const enrolled = myCoursesData.map(c => ({
+          id: c.CourseID,
+          title: c.Title,
+          credits: c.Credits,
+          instructorId: c.InstructorID,
+          color: c.Color,
+          schedule: `${c.ScheduleDay} ${c.ScheduleTime}`
+      }));
+      setEnrolledCourses(enrolled);
+
+      // 2. Fetch All Available Courses
+      const allCoursesRes = await fetch('http://localhost:5000/api/courses');
+      const allCoursesData = await allCoursesRes.json() || [];
+      
+      // Filter out courses I am already enrolled in
+      const enrolledIds = enrolled.map(c => c.id);
+      const available = allCoursesData
+        .filter(c => !enrolledIds.includes(c.CourseID))
+        .map(c => ({
+            id: c.CourseID,
+            title: c.Title,
+            credits: c.Credits,
+            instructorId: c.InstructorID,
+            schedule: `${c.ScheduleDay} ${c.ScheduleTime}`,
+            location: c.Location
+        }));
+      setAvailableCourses(available);
+
+      // 3. Fetch My Requests
+      const requestsRes = await fetch(`http://localhost:5000/api/requests/${user.id}`);
+      const requestsData = await requestsRes.json() || [];
+      setMyRequests(requestsData);
+
+      // 4. Calculate Stats
+      setStats({
+        enrolled: enrolled.length,
+        pending: requestsData.filter(r => r.Status === 'pending').length,
+        completed: 0, // Placeholder
+        gpa: 3.8 // Placeholder (Calculated from Grades later)
+      });
+
+      // 5. Fetch Instructor Names (Optimization: Only fetch unique IDs)
+      const instructorIds = [...new Set([...enrolled, ...available].map(c => c.instructorId).filter(id => id))];
+      const newInstructorMap = {};
+      
+      await Promise.all(instructorIds.map(async (instId) => {
+          try {
+              const res = await fetch(`http://localhost:5000/api/entity/${instId}`);
+              const data = await res.json();
+              newInstructorMap[instId] = `${data.firstName} ${data.lastName}`;
+          } catch(e) { 
+              newInstructorMap[instId] = "Unknown Instructor"; 
+          }
+      }));
+      setInstructorMap(newInstructorMap);
+
+    } catch (err) {
+      console.error('Error loading dashboard:', err);
+    }
+  };
+
+  // --- Materials Handlers ---
+  const openMaterialsModal = async (course) => {
     setSelectedCourseMaterials(course);
     setMaterialsModalOpen(true);
+    setCourseMaterialsList([]); // Reset
+
+    try {
+        const res = await fetch(`http://localhost:5000/api/materials/${course.id}`);
+        const data = await res.json() || [];
+        setCourseMaterialsList(data);
+    } catch (err) {
+        console.error("Failed to load materials", err);
+    }
   };
 
-  const closeMaterialsModal = () => {
-    setMaterialsModalOpen(false);
-    setSelectedCourseMaterials(null);
+  const downloadFile = (fileName, fileData) => {
+      // If we have data, download it. If not, alert (demo)
+      if(fileData) {
+          const link = document.createElement('a');
+          link.href = fileData;
+          link.download = fileName;
+          link.click();
+      } else {
+          alert("Downloading..."); // Real app would fetch blob
+      }
   };
 
-  // Request Modal Handlers
+  // --- Request Handlers ---
   const openRequestModal = (course) => {
     setSelectedRequestCourse(course);
     setRequestReason('');
     setRequestModalOpen(true);
   };
 
-  const submitRequest = () => {
+  const submitRequest = async () => {
     if (!selectedRequestCourse) return;
     try {
-        const request = {
-            studentId: user.id,
-            courseId: selectedRequestCourse.id,
-            reason: requestReason || 'No reason provided',
-            dateSubmitted: new Date().toISOString().split('T')[0],
-            status: 'pending'
-        };
-        universityDB.createCourseRequest(request);
-        alert('Request Submitted Successfully!');
-        setRequestModalOpen(false);
-        loadData(); // Refresh dashboard data
+        const response = await fetch('http://localhost:5000/api/course-request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                studentId: user.id,
+                courseId: selectedRequestCourse.id, // ID from our normalized object
+                reason: requestReason || 'No reason provided'
+            })
+        });
+
+        if (response.ok) {
+            alert('Request Submitted Successfully!');
+            setRequestModalOpen(false);
+            loadData(); // Refresh lists
+        } else {
+            alert('Error submitting request. You might already have a pending request.');
+        }
     } catch (e) {
-        alert(e.message);
+        alert('Error: ' + e.message);
     }
   };
 
   return (
     <div id="dashboard-section" className="content-section">
       <div className="dashboard-grid">
-        {/* Card 1: Enrolled */}
+        {/* Stats Cards */}
         <div className="stat-card primary">
           <i className="fas fa-book"></i>
           <div className="stat-info">
@@ -95,287 +159,142 @@ const StudentDashboard = ({ user }) => {
             <span className="stat-value">{stats.enrolled}</span>
           </div>
         </div>
-
-        {/* Card 2: Pending */}
         <div className="stat-card warning">
           <i className="fas fa-exclamation-triangle"></i>
           <div className="stat-info">
-            <p>Pending Assignments</p>
+            <p>Pending Requests</p>
             <span className="stat-value">{stats.pending}</span>
           </div>
         </div>
-
-        {/* Card 3: GPA */}
         <div className="stat-card success">
           <i className="fas fa-graduation-cap"></i>
           <div className="stat-info">
-            <p>Cumulative GPA</p>
-            <span className="stat-value">{stats.gpa.toFixed(2)}</span>
+            <p>GPA</p>
+            <span className="stat-value">{stats.gpa}</span>
           </div>
         </div>
-
-        {/* Card 4: Completed Assignments */}
         <div className="stat-card info">
            <i className="fas fa-check-circle"></i>
            <div className="stat-info">
-              <p>Completed Assignments</p>
-              <span className="stat-value">{stats.completed}</span>
+              <p>Completed Credits</p>
+              <span className="stat-value">0</span>
            </div>
         </div>
       </div>
 
-      {/* Row 1: Current Courses & Upcoming Deadlines */}
       <div className="widgets-container">
+        
+        {/* Enrolled Courses */}
         <div className="widget large">
-          <h3 style={{ color: 'var(--secondary)', borderBottom: '2px solid #e9ecef', paddingBottom: '10px', marginBottom: '15px' }}>Current Courses</h3>
-          
+          <h3 style={{color: 'var(--secondary)', borderBottom: '2px solid #e9ecef', paddingBottom: '10px'}}>Current Courses</h3>
           <div className="courses-grid">
-             {enrolledCourses.length === 0 ? <p className="placeholder-text">Not enrolled in any courses yet.</p> : enrolledCourses.map(c => {
-                
-                // --- 1. Get Instructor Names (Handles single or multiple) ---
-                const instructors = universityDB.getInstructorsForCourse(c);
-                const instructorNames = instructors.map(i => `${i.firstName} ${i.lastName}`).join(', ');
-
-                return (
-                  <div key={c.id} className="course-card" style={{
-                      borderTop: `4px solid ${c.color || 'var(--primary)'}`,
-                      borderRadius: '8px',
-                      backgroundColor: 'white',
-                      padding: '15px',
-                      boxShadow: '0 2px 5px rgba(0,0,0,0.05)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      minHeight: '160px'
-                  }}>
-                    <div>
-                      <h4 style={{ margin: '0 0 5px 0', fontSize: '1.1rem', color: '#333' }}>{c.id}: {c.title}</h4>
-                      
-                      {/* Credits Line */}
-                      <p style={{ color: '#6c757d', fontSize: '0.9rem', margin: '0 0 8px 0' }}>Credits: {c.credits}</p>
-
-                      {/* --- 2. Instructor Name Display (Under Credits) --- */}
-                      <p style={{ 
-                          color: '#4361ee', 
-                          fontSize: '0.9rem', 
-                          margin: 0, 
-                          fontWeight: '600',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px'
-                      }}>
-                        <i className="fas fa-chalkboard-teacher"></i>
-                        {instructorNames || 'Staff'}
-                      </p>
-                    </div>
-                    
-                    <div style={{ textAlign: 'right', marginTop: '15px' }}>
-                      <button 
-                          onClick={() => openMaterialsModal(c)}
-                          style={{
-                              backgroundColor: '#4cc9f0', 
-                              color: '#212529',
-                              border: 'none',
-                              padding: '8px 12px',
-                              borderRadius: '4px',
-                              fontWeight: '600',
-                              fontSize: '0.85rem',
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px'
-                          }}
-                      >
-                          <i className="fas fa-file-alt"></i> View Materials
+             {enrolledCourses.length === 0 ? <p className="placeholder-text">Not enrolled in any courses.</p> : enrolledCourses.map(c => (
+                <div key={c.id} className="course-card" style={{borderTop: `4px solid ${c.color || 'var(--primary)'}`}}>
+                   <h4 style={{margin: '0 0 5px 0'}}>{c.id}: {c.title}</h4>
+                   <p style={{fontSize: '0.9rem', color: '#666', margin: '0 0 5px 0'}}>Credits: {c.credits}</p>
+                   <p style={{fontSize: '0.9rem', color: '#4361ee', fontWeight:'bold'}}>
+                       <i className="fas fa-chalkboard-teacher"></i> {instructorMap[c.instructorId] || 'Staff'}
+                   </p>
+                   <div style={{textAlign: 'right', marginTop: '15px'}}>
+                      <button className="btn btn-info btn-sm" onClick={() => openMaterialsModal(c)}>
+                          <i className="fas fa-file-alt"></i> Materials
                       </button>
-                    </div>
-                  </div>
-                );
-             })}
+                   </div>
+                </div>
+             ))}
           </div>
         </div>
 
+        {/* Upcoming Requests */}
         <div className="widget small">
-           <h3 style={{ color: 'var(--secondary)', borderBottom: '2px solid #e9ecef', paddingBottom: '10px', marginBottom: '15px' }}>Upcoming Deadlines</h3>
+           <h3 style={{color: 'var(--secondary)', borderBottom: '2px solid #e9ecef', paddingBottom: '10px'}}>Recent Requests</h3>
            <div className="assignments-list">
-             {upcomingAssignments.length === 0 ? <p className="placeholder-text">No upcoming assignments.</p> : upcomingAssignments.map(a => (
-               <div key={a.id} className="assignment-item">
-                 <div className="assignment-name">{a.title}</div>
-                 <div className="priority medium">Pending</div>
+             {myRequests.length === 0 ? <p className="placeholder-text">No active requests.</p> : myRequests.slice(0, 3).map(r => (
+               <div key={r.Id} className="assignment-item" style={{borderLeft: `4px solid ${r.Status === 'pending' ? 'orange' : r.Status === 'approved' ? 'green' : 'red'}`}}>
+                 <div className="assignment-name">
+                   {r.CourseId}: {r.Title}
+                   <div style={{fontSize:'0.8rem', color:'#666'}}>{new Date(r.EnrolledAt).toLocaleDateString()}</div>
+                 </div>
+                 <div style={{textTransform:'uppercase', fontSize:'0.75rem', fontWeight:'bold'}}>{r.Status}</div>
                </div>
              ))}
            </div>
         </div>
+
       </div>
 
-      {/* Row 2: Available Courses & My Requests */}
-      <div className="widgets-container" style={{ marginTop: '30px' }}>
-        {/* Left: Available Courses (Quick Browse) */}
-        <div className="widget large">
-           <h3 style={{ color: 'var(--secondary)', borderBottom: '2px solid #e9ecef', paddingBottom: '10px', marginBottom: '15px' }}>Available Courses (Quick Browse)</h3>
-           <div className="courses-grid" style={{ gridTemplateColumns: '1fr' }}> 
-             {availableCourses.length === 0 ? <p className="placeholder-text">No available courses to display.</p> : availableCourses.slice(0, 3).map(course => { 
-                 const instructors = universityDB.getInstructorsForCourse(course);
-                 const instructorNames = instructors.map(i => `${i.firstName} ${i.lastName}`).join(', ');
-
-                 return (
-                    <div key={course.id} className="course-card" style={{ borderTop: `4px solid ${course.color || 'var(--primary)'}`, marginBottom: '15px' }}>
-                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                           <h4 style={{ margin: 0 }}>{course.id}: {course.title}</h4>
-                           <span style={{ backgroundColor: 'var(--primary)', color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '0.8rem' }}>{course.credits} Credits</span>
-                       </div>
-                       
-                       {/* Instructor in Quick Browse as well */}
-                       <p style={{ margin: '5px 0', fontSize: '0.9rem', color: '#555' }}>
-                           <strong>Instructor:</strong> {instructorNames || 'Staff'}
-                       </p>
-                       
-                       <p style={{ margin: '5px 0', fontSize: '0.9rem', color: '#555' }}><strong>Schedule:</strong> {course.schedule} | {course.location}</p>
-                       <div style={{ textAlign: 'right', marginTop: '10px' }}>
-                           <button onClick={() => openRequestModal(course)} style={{
-                               backgroundColor: '#f72585',
-                               color: 'white',
-                               border: 'none',
-                               padding: '6px 12px',
-                               borderRadius: '4px',
-                               cursor: 'pointer',
-                               fontWeight: '600'
-                           }}>+Request</button>
-                       </div>
-                    </div>
-                 );
-             })}
-           </div>
-        </div>
-
-        {/* Right: My Course Requests */}
-        <div className="widget large">
-           <h3 style={{ color: 'var(--secondary)', borderBottom: '2px solid #e9ecef', paddingBottom: '10px', marginBottom: '15px' }}>My Course Requests</h3>
-           <div className="assignments-list">
-             {myRequests.length === 0 ? (
-                 <p className="placeholder-text" style={{ fontStyle: 'italic', color: '#999', textAlign: 'center', padding: '20px' }}>
-                    You have no submitted course registration requests.
-                 </p>
-             ) : myRequests.map(r => {
-               const course = universityDB.getCourseById(r.courseId);
-               const courseTitle = course ? course.title : 'Unknown Course';
-
-               return (
-               <div key={r.id} className="request-item" style={{ 
-                   borderLeft: `4px solid ${r.status === 'pending' ? 'var(--warning)' : r.status === 'approved' ? 'var(--success)' : 'var(--danger)'}`,
-                   backgroundColor: 'white',
-                   padding: '15px',
-                   borderRadius: '4px',
-                   marginBottom: '10px',
-                   boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-               }}>
-                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                    <h4 style={{ margin: 0, fontSize: '1rem' }}>{r.courseId}: {courseTitle}</h4>
-                    <span className={`status-${r.status}`} style={{ 
-                        fontSize: '0.75rem', 
-                        padding: '2px 8px', 
-                        borderRadius: '10px', 
-                        backgroundColor: r.status === 'pending' ? '#fff3cd' : r.status === 'approved' ? '#d1edff' : '#f8d7da',
-                        color: r.status === 'pending' ? '#856404' : r.status === 'approved' ? '#0d6efd' : '#842029'
-                    }}>{r.status.toUpperCase()}</span>
-                 </div>
-                 <p style={{ margin: 0, fontSize: '0.85rem', color: '#666' }}>Submitted: {r.dateSubmitted}</p>
+      {/* Available Courses Row */}
+      <div className="widget large" style={{marginTop:'30px'}}>
+         <h3 style={{color: 'var(--secondary)', borderBottom: '2px solid #e9ecef', paddingBottom: '10px'}}>Available Courses</h3>
+         <div className="courses-grid">
+            {availableCourses.length === 0 ? <p className="placeholder-text">No other courses available.</p> : availableCourses.slice(0, 4).map(c => (
+               <div key={c.id} className="course-card">
+                  <div style={{display:'flex', justifyContent:'space-between'}}>
+                      <h4 style={{margin:0}}>{c.id}: {c.title}</h4>
+                      <span className="badge" style={{background:'var(--primary)', color:'white', padding:'2px 6px', borderRadius:'4px'}}>{c.credits} Cr</span>
+                  </div>
+                  <p style={{fontSize:'0.9rem', color:'#555', margin:'5px 0'}}>
+                      <strong>Instructor:</strong> {instructorMap[c.instructorId] || 'Staff'}
+                  </p>
+                  <div style={{textAlign:'right', marginTop:'10px'}}>
+                      <button className="btn btn-primary btn-sm" onClick={() => openRequestModal(c)}>+ Request</button>
+                  </div>
                </div>
-             )})}
-           </div>
-        </div>
+            ))}
+         </div>
       </div>
 
-      {/* --- Materials Modal --- */}
+      {/* Materials Modal */}
       {materialsModalOpen && selectedCourseMaterials && (
         <div className="modal" style={{ display: 'flex' }}>
-          <div className="modal-content" style={{ maxWidth: '600px' }}>
+          <div className="modal-content" style={{maxWidth:'600px'}}>
             <div className="modal-header">
-                <h3 style={{ color: 'var(--primary)' }}>{selectedCourseMaterials.id}: {selectedCourseMaterials.title} Materials</h3>
-                <span className="close" onClick={closeMaterialsModal}>&times;</span>
+                <h3>{selectedCourseMaterials.title} Materials</h3>
+                <span className="close" onClick={() => setMaterialsModalOpen(false)}>&times;</span>
             </div>
-            
             <div className="modal-body">
-                {(() => {
-        const instructors = universityDB.getInstructorsForCourse(selectedCourseMaterials);
-        const names = instructors.map(i => `${i.firstName} ${i.lastName}`).join(', ');
-        
-        return (
-            <div style={{ backgroundColor: '#e9ecef', padding: '10px', borderRadius: '4px', marginBottom: '20px', color: '#6c757d', fontSize: '0.9rem' }}>
-                <strong>Instructor(s):</strong> {names || 'Staff'}
-            </div>
-            );
-        })()}
-
-            <div className="materials-list" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {(selectedCourseMaterials.materials && selectedCourseMaterials.materials.length > 0) ? (
-                    selectedCourseMaterials.materials.map((mat, index) => (
-                        <div key={index} className="material-item" style={{ 
-                            display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', 
-                            border: '1px solid #dee2e6', borderRadius: '4px', backgroundColor: 'white' 
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                                <i className={`fas fa-${mat.icon || 'file'}`} style={{ fontSize: '1.2rem', color: 'var(--primary)', marginRight: '15px', width: '20px', textAlign: 'center' }}></i>
-                                <div>
-                                    <span style={{ fontWeight: '500', color: '#212529', display: 'block' }}>{mat.title}</span>
-                                    <small style={{ color: '#666' }}>{mat.type.toUpperCase()}</small>
-                                </div>
+                {courseMaterialsList.length === 0 ? (
+                    <p className="placeholder-text">No materials uploaded yet.</p>
+                ) : (
+                    courseMaterialsList.map(m => (
+                        <div key={m.MaterialID} className="material-item" style={{display:'flex', justifyContent:'space-between', padding:'10px', borderBottom:'1px solid #eee'}}>
+                            <div>
+                                <strong>{m.Title}</strong> <br/>
+                                <small>{m.Type}</small>
                             </div>
-
-                            {/* Show download button if it is a file */}
-                            {mat.type === 'file' && mat.fileData && (
-                                <button 
-                                    className="btn btn-success" 
-                                    onClick={() => {
-                                        const link = document.createElement('a');
-                                        link.href = mat.fileData;
-                                        link.download = mat.fileName || 'material';
-                                        document.body.appendChild(link);
-                                        link.click();
-                                        document.body.removeChild(link);
-                                    }}
-                                    style={{ padding: '5px 10px' }}
-                                >
-                                    <i className="fas fa-download"></i>
-                                </button>
-                            )}
+                            {/* Pass null for fileData, let helper handle logic if needed */}
+                            <button className="btn btn-success btn-sm" onClick={() => downloadFile(m.Title, null)}>Download</button>
                         </div>
-                       ))
-                      ) : (
-                    <p style={{ padding: '10px', fontStyle: 'italic', textAlign: 'center' }}>No materials uploaded by the instructor yet.</p>
-                    )}
-                </div>
+                    ))
+                )}
             </div>
-
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={closeMaterialsModal}>Close</button>
+                <button className="btn btn-secondary" onClick={() => setMaterialsModalOpen(false)}>Close</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* --- Course Request Modal --- */}
-      {requestModalOpen && selectedRequestCourse && (
+      {/* Request Modal */}
+      {requestModalOpen && (
         <div className="modal" style={{ display: 'flex' }}>
           <div className="modal-content">
             <div className="modal-header">
-                <h3>Request {selectedRequestCourse.title}</h3>
+                <h3>Request {selectedRequestCourse?.title}</h3>
                 <span className="close" onClick={() => setRequestModalOpen(false)}>&times;</span>
             </div>
             <div className="modal-body">
-                <p className="modal-info-text">You are about to request registration for <strong>{selectedRequestCourse.id}</strong>.</p>
-                <div className="form-group">
-                    <label>Reason for Request</label>
-                    <textarea className="form-control" rows="3" value={requestReason} onChange={e => setRequestReason(e.target.value)} placeholder="Optional: Explain why you want to take this course..."></textarea>
-                </div>
+                <p>Register for <strong>{selectedRequestCourse?.id}</strong>?</p>
+                <textarea className="form-control" rows="3" placeholder="Reason (Optional)" value={requestReason} onChange={e => setRequestReason(e.target.value)}></textarea>
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setRequestModalOpen(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={submitRequest}>Submit Request</button>
+                <button className="btn btn-secondary" onClick={() => setRequestModalOpen(false)}>Cancel</button>
+                <button className="btn btn-primary" onClick={submitRequest}>Submit Request</button>
             </div>
           </div>
         </div>
       )}
+
     </div>
   );
 };

@@ -1,40 +1,79 @@
 import React, { useState, useEffect } from 'react';
-import { universityDB } from '../../utils/database';
 
 const InstructorCourseAssignment = ({ user }) => {
   const [activeCourses, setActiveCourses] = useState([]);
+  const [instructorData, setInstructorData] = useState({}); // Stores names like { 'INS001': 'Dr. Smith' }
 
-  const loadData = () => {
-    universityDB.loadFromStorage();
-    const courses = universityDB.getActiveCoursesWithEnrollments();
-    setActiveCourses(courses);
+  // 1. Load Courses
+  const loadData = async () => {
+    try {
+      // Use the View-based API (Fast)
+      const coursesRes = await fetch('http://localhost:5000/api/courses');
+      const courses = await coursesRes.json() || [];
+      setActiveCourses(courses);
+
+      // 2. Fetch details for assigned instructors
+      const newInstructorData = {};
+      
+      // Find unique instructor IDs from the course list
+      const instructorIds = [...new Set(courses.map(c => c.InstructorID).filter(id => id))];
+
+      // Fetch details for each instructor (in parallel)
+      await Promise.all(instructorIds.map(async (instId) => {
+          try {
+              const res = await fetch(`http://localhost:5000/api/entity/${instId}`);
+              const data = await res.json();
+              newInstructorData[instId] = `${data.firstName || ''} ${data.lastName || ''}`.trim();
+          } catch (e) {
+              console.warn(`Could not load name for ${instId}`);
+              newInstructorData[instId] = instId; // Fallback to ID
+          }
+      }));
+
+      setInstructorData(newInstructorData);
+
+    } catch (err) {
+      console.error('Error loading courses:', err);
+      setActiveCourses([]);
+    }
   };
 
   useEffect(() => {
     loadData();
   }, []);
 
-  const handleAssignSelf = (courseId) => {
-    if (confirm('Are you sure you want to co-teach this course?')) {
+  // 3. Assign Self (Updates 'InstructorId' attribute)
+  const handleAssignSelf = async (courseId) => {
+    if (confirm('Take over this course as the Instructor?')) {
       try {
-        universityDB.assignInstructorToCourse(courseId, user.id);
-        alert('You have been added to this course!');
-        loadData(); 
-      } catch (e) {
-        alert(e.message);
+        // NOTE: matches the Generic Admin Tool in server.js
+        await fetch(`http://localhost:5000/api/entity/${courseId}/InstructorId`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: user.id })
+        });
+        alert('You are now the instructor for this course!');
+        loadData();
+      } catch (err) {
+        console.error('Error assigning instructor:', err);
+        alert('Failed to update course.');
       }
     }
   };
 
-  // --- NEW: Handle Unassign ---
-  const handleUnassignSelf = (courseId) => {
-    if (confirm('Are you sure you want to leave this course? You will no longer be listed as an instructor.')) {
+  // 4. Leave Course
+  const handleUnassignSelf = async (courseId) => {
+    if (confirm('Remove yourself from this course?')) {
       try {
-        universityDB.removeInstructorFromCourse(courseId, user.id);
-        alert('You have been removed from this course.');
+        await fetch(`http://localhost:5000/api/entity/${courseId}/InstructorId`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: '' }) // Clear the value
+        });
+        alert('You have been removed.');
         loadData();
-      } catch (e) {
-        alert(e.message);
+      } catch (err) {
+        console.error('Error removing instructor:', err);
       }
     }
   };
@@ -43,74 +82,60 @@ const InstructorCourseAssignment = ({ user }) => {
     <div id="instructor-assignment-section" className="content-section">
       <h2 style={{ color: 'var(--primary)', marginBottom: '20px' }}>Course Assignment</h2>
       <p style={{ marginBottom: '20px', color: '#666' }}>
-        Assign yourself to active courses. You will be added as a co-instructor.
+        Select courses you are teaching this semester.
       </p>
 
       <div className="courses-grid">
         {activeCourses.length === 0 ? (
-          <p className="placeholder-text">No active courses available.</p>
+          <p className="placeholder-text">No courses found in the system.</p>
         ) : (
           activeCourses.map(course => {
-            const instructors = universityDB.getInstructorsForCourse(course);
-            const isAssignedToMe = instructors.some(inst => inst.id === user.id);
+            // Check if I am the instructor
+            const currentInstId = course.InstructorID;
+            const isAssignedToMe = currentInstId === user.id;
+            const instructorName = instructorData[currentInstId] || 'Unassigned';
 
             return (
-              <div key={course.id} className="course-card" style={{ borderTop: `5px solid ${course.color || 'var(--primary)'}` }}>
+              <div key={course.CourseID || course.id} className="course-card" style={{ 
+                  borderTop: `5px solid ${isAssignedToMe ? 'var(--success)' : 'var(--primary)'}` 
+              }}>
                 <div className="course-header">
-                  <h4>{course.id}: {course.title}</h4>
-                  <span className="course-credits">{course.credits} Credits</span>
+                  <h4>{course.Title}</h4>
+                  <span className="course-credits">{course.Credits} Credits</span>
                 </div>
                 
                 <div style={{ marginTop: '15px' }}>
-                  <strong>Current Instructor(s):</strong> <br/>
-                  {instructors.length > 0 ? (
-                    <div style={{ marginTop: '5px' }}>
-                        {instructors.map((inst, idx) => (
-                            <span key={idx} style={{ 
-                                display: 'inline-block',
-                                backgroundColor: inst.id === user.id ? '#d1e7dd' : '#f8f9fa',
-                                color: inst.id === user.id ? '#0f5132' : '#212529',
-                                padding: '2px 8px',
-                                borderRadius: '4px',
-                                fontSize: '0.9rem',
-                                marginRight: '5px',
-                                marginBottom: '5px',
-                                border: '1px solid #dee2e6'
-                            }}>
-                                {inst.firstName} {inst.lastName} {inst.id === user.id ? '(You)' : ''}
-                            </span>
-                        ))}
-                    </div>
-                  ) : (
-                    <span style={{ color: 'red', fontStyle: 'italic' }}>Unassigned</span>
-                  )}
+                  <strong>Instructor:</strong> <br/>
+                  <span style={{ 
+                      color: currentInstId ? '#333' : 'red',
+                      fontStyle: currentInstId ? 'normal' : 'italic'
+                  }}>
+                      {currentInstId ? instructorName : 'No Instructor Assigned'}
+                  </span>
                 </div>
 
                 <p style={{ fontSize: '0.9rem', color: '#666', marginTop: '10px' }}>
-                  {course.schedule} | {course.location}
+                  {course.ScheduleDay} {course.ScheduleTime}
                 </p>
 
                 <div className="course-footer" style={{ marginTop: '20px' }}>
                   {isAssignedToMe ? (
-                    // --- UPDATED: Leave Course Button ---
                     <button 
                         className="btn" 
-                        onClick={() => handleUnassignSelf(course.id)}
-                        style={{ 
-                            backgroundColor: '#f8d7da', 
-                            color: '#721c24', 
-                            border: '1px solid #f5c6cb',
-                            cursor: 'pointer' 
-                        }}
+                        onClick={() => handleUnassignSelf(course.CourseID || course.id)}
+                        style={{ backgroundColor: '#f8d7da', color: '#721c24', border: '1px solid #f5c6cb' }}
                     >
                       <i className="fas fa-times-circle"></i> Leave Course
                     </button>
                   ) : (
                     <button 
                       className="btn btn-primary" 
-                      onClick={() => handleAssignSelf(course.id)}
+                      onClick={() => handleAssignSelf(course.CourseID || course.id)}
+                      disabled={!!currentInstId} // Disable if someone else is already assigned (Optional)
+                      title={currentInstId ? "Course already has an instructor" : "Assign Self"}
+                      style={{ opacity: currentInstId ? 0.6 : 1 }}
                     >
-                      Join as Instructor
+                      {currentInstId ? 'Taken' : 'Teach this Course'}
                     </button>
                   )}
                 </div>
