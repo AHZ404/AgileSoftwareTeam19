@@ -297,30 +297,52 @@ const StudentDashboard = ({ user }) => {
             
             <div className="modal-body">
                 {(() => {
-                   const instructors = universityDB.getInstructorsForCourse(selectedCourseMaterials);
-                   const names = instructors.map(i => `${i.firstName} ${i.lastName}`).join(', ');
-                   
-                   return (
-                     <div style={{ backgroundColor: '#e9ecef', padding: '10px', borderRadius: '4px', marginBottom: '20px', color: '#6c757d', fontSize: '0.9rem' }}>
-                        <strong>Instructor(s):</strong> {names || 'Staff'}
-                     </div>
-                   );
-                })()}
+        const instructors = universityDB.getInstructorsForCourse(selectedCourseMaterials);
+        const names = instructors.map(i => `${i.firstName} ${i.lastName}`).join(', ');
+        
+        return (
+            <div style={{ backgroundColor: '#e9ecef', padding: '10px', borderRadius: '4px', marginBottom: '20px', color: '#6c757d', fontSize: '0.9rem' }}>
+                <strong>Instructor(s):</strong> {names || 'Staff'}
+            </div>
+            );
+        })()}
 
-                <div className="materials-list" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {(selectedCourseMaterials.materials && selectedCourseMaterials.materials.length > 0) ? (
-                        selectedCourseMaterials.materials.map((mat, index) => (
-                            <div key={index} className="material-item" style={{ 
-                                display: 'flex', alignItems: 'center', padding: '12px', 
-                                border: '1px solid #dee2e6', borderRadius: '4px', 
-                                backgroundColor: 'white', cursor: 'pointer' 
-                            }}>
+            <div className="materials-list" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {(selectedCourseMaterials.materials && selectedCourseMaterials.materials.length > 0) ? (
+                    selectedCourseMaterials.materials.map((mat, index) => (
+                        <div key={index} className="material-item" style={{ 
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', 
+                            border: '1px solid #dee2e6', borderRadius: '4px', backgroundColor: 'white' 
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
                                 <i className={`fas fa-${mat.icon || 'file'}`} style={{ fontSize: '1.2rem', color: 'var(--primary)', marginRight: '15px', width: '20px', textAlign: 'center' }}></i>
-                                <span style={{ fontWeight: '500', color: '#212529' }}>{mat.title} ({mat.type?.toUpperCase() || 'FILE'})</span>
+                                <div>
+                                    <span style={{ fontWeight: '500', color: '#212529', display: 'block' }}>{mat.title}</span>
+                                    <small style={{ color: '#666' }}>{mat.type.toUpperCase()}</small>
+                                </div>
                             </div>
-                        ))
-                    ) : (
-                        <p style={{ padding: '10px', fontStyle: 'italic' }}>No materials available.</p>
+
+                            {/* Show download button if it is a file */}
+                            {mat.type === 'file' && mat.fileData && (
+                                <button 
+                                    className="btn btn-success" 
+                                    onClick={() => {
+                                        const link = document.createElement('a');
+                                        link.href = mat.fileData;
+                                        link.download = mat.fileName || 'material';
+                                        document.body.appendChild(link);
+                                        link.click();
+                                        document.body.removeChild(link);
+                                    }}
+                                    style={{ padding: '5px 10px' }}
+                                >
+                                    <i className="fas fa-download"></i>
+                                </button>
+                            )}
+                        </div>
+                       ))
+                      ) : (
+                    <p style={{ padding: '10px', fontStyle: 'italic', textAlign: 'center' }}>No materials uploaded by the instructor yet.</p>
                     )}
                 </div>
             </div>

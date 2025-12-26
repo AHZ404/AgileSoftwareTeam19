@@ -31,7 +31,7 @@ class UniversityDB {
             advisors: this.generateAdvisors(),
             admins: this.generateAdmins(),
             courses: this.generateCourses(),
-            assignments: this.generateAssignments(),
+            assignments: [],
             enrollments: [],
             grades: [],
             courseRequests: [],
@@ -295,42 +295,29 @@ class UniversityDB {
     generateCourses() {
         return [
             { id: 'CS101', title: 'Intro to Programming', credits: 3, instructorId: 1001, schedule: 'Mon/Wed 10:00-11:30', location: 'Room 301', description: 'Fundamental concepts of structured programming.', color: '#4361ee', 
-              materials: [
-                  { type: 'file', title: 'Syllabus', link: '#', icon: 'file-pdf' },
-                  { type: 'link', title: 'Week 1 Slides: Basic Syntax', link: '#', icon: 'file-powerpoint' }
-              ]
+              materials: []
             },
             { id: 'CS205', title: 'Data Structures', credits: 4, instructorId: 1001, schedule: 'Tue/Thu 13:00-14:30', location: 'Room 205', description: 'Analysis and implementation of common data structures.', color: '#f72585',
-              materials: [
-                  { type: 'link', title: 'Lecture Notes: Linked Lists', link: '#', icon: 'sticky-note' },
-                  { type: 'file', title: 'Code Template: Stacks & Queues', link: '#', icon: 'file-code' }
-              ] 
+              materials: [] 
             },
             { id: 'MA101', title: 'Calculus I', credits: 4, instructorId: 1001, schedule: 'Mon/Wed/Fri 09:00-10:00', location: 'Lecture Hall 1', description: 'Differential and integral calculus of a single variable.', color: '#4cc9f0',
-              materials: [
-                  { type: 'link', title: 'Video: The Limit Definition', link: '#', icon: 'video' }
-              ]
+              materials: []
             },
             { id: 'EN101', title: 'English Composition', credits: 3, instructorId: 1001, schedule: 'Tue/Thu 11:00-12:30', location: 'Room 102', description: 'Focuses on critical reading and academic writing.', color: '#3f37c9',
-              materials: [
-                  { type: 'file', title: 'Style Guide & Rubric', link: '#', icon: 'file-word' }
-              ]
+              materials: []
+             
             },
             { id: 'PH201', title: 'Modern Physics', credits: 3, instructorId: 1001, schedule: 'Wed/Fri 14:00-15:30', location: 'Lab 4', description: 'Introduction to relativity and quantum mechanics.', color: '#90be6d',
-              materials: [
-                  { type: 'file', title: 'Experiment 1: Setup', link: '#', icon: 'flask' }
-              ]
+              materials: []
+            
             },
             // --- New Courses to increase available selection ---
             { id: 'CS301', title: 'Database Systems', credits: 3, instructorId: 1001, schedule: 'Mon/Wed 15:00-16:30', location: 'Room 305', description: 'Relational database theory and SQL implementation.', color: '#9d4edd',
-              materials: [
-                  { type: 'link', title: 'Introduction to SQL', link: '#', icon: 'database' }
-              ]
+              materials: []
+            
             },
             { id: 'HI101', title: 'World History Since 1500', credits: 3, instructorId: 1001, schedule: 'Tue/Thu 09:00-10:30', location: 'Auditorium B', description: 'A survey of global history from the early modern era to the present.', color: '#ffb703',
-              materials: [
-                  { type: 'file', title: 'Reading List', link: '#', icon: 'book-reader' }
-              ]
+              materials: []
             }
         ];
     }
@@ -541,6 +528,51 @@ class UniversityDB {
         
         this.assignments.splice(index, 1);
         this.saveToStorage();
+    }
+    addCourseMaterial(courseId, material) {
+        // material: { type, title, icon, fileData, fileName }
+        const course = this.courses.find(c => c.id === courseId);
+        if (!course) throw new Error('Course not found');
+
+        if (!course.materials) {
+            course.materials = [];
+        }
+
+        course.materials.push(material);
+        this.saveToStorage();
+        return course;
+    }
+
+    removeCourseMaterial(courseId, materialIndex) {
+        const course = this.courses.find(c => c.id === courseId);
+        if (!course || !course.materials) return;
+
+        course.materials.splice(materialIndex, 1);
+        this.saveToStorage();
+    }
+    submitAssignment(submissionData) {
+        // submissionData: { studentId, assignmentId, courseId, fileName, fileData, submittedAt }
+        if (!this.submissions) {
+            this.submissions = [];
+        }
+
+        const newSubmission = {
+            id: Date.now(),
+            ...submissionData,
+            status: 'submitted',
+            grade: null,
+            feedback: ''
+        };
+
+        this.submissions.push(newSubmission);
+        this.saveToStorage();
+        return newSubmission;
+    }
+
+    getSubmission(studentId, assignmentId) {
+        return (this.submissions || []).find(
+            s => s.studentId === studentId && s.assignmentId === assignmentId
+        );
     }
 
     // Return academic history entries for a student

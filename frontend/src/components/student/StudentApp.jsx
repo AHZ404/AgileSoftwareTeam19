@@ -13,7 +13,7 @@ const StudentApp = ({ user, onLogout }) => {
   // Updated Nav Items to match your sidebar image
   const navItems = [
     { id: 'dashboard', label: 'Dashboard' },
-    { id: 'courses', label: 'Courses' },
+    { id: 'courses', label: 'Courses Registration' },
     { id: 'classrooms', label: 'Classrooms' },
     { id: 'assignments', label: 'Assignments' },
     { id: 'schedule', label: 'Schedule' },

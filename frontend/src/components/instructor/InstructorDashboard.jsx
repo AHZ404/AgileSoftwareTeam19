@@ -19,7 +19,11 @@ const InstructorDashboard = ({ user }) => {
 
     // 1. Get Courses managed by this instructor
     const allCourses = universityDB.getAllCourses();
-    const instructorCourses = allCourses.filter(c => c.instructorId === user.id);
+    const instructorCourses = allCourses.filter(c => {
+        const ids = c.instructorIds || [];
+        const effectiveIds = ids.length > 0 ? ids : (c.instructorId ? [c.instructorId] : []);
+        return effectiveIds.includes(user.id);
+    });
 
     // 2. Get Bookings
     const bookings = universityDB.getBookingsByStudent(user.id);
