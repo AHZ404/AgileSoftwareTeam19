@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const CourseManager = ({ course, onBack }) => {
+const CourseManager = ({ course, onBack, user }) => {
   // --- State Management ---
   const [activeTab, setActiveTab] = useState('assignments'); 
   const [assignments, setAssignments] = useState([]);
@@ -27,43 +27,39 @@ const CourseManager = ({ course, onBack }) => {
     try {
       setLoading(true);
       
-      // 1. Load Assignments
+      // 1. Load Assignments using the View-based API
       const assignResponse = await fetch(`http://localhost:5000/api/assignments/${courseId}`);
       if (assignResponse.ok) {
         const rawAssign = await assignResponse.json();
-        // Normalize Data
         const cleanAssign = rawAssign.map(a => ({
-            id: a.AssignmentID || a.id,
-            title: a.Title || a.AssignmentTitle,
-            dueDate: a.DueDate ? a.DueDate.split('T')[0] : '', // Handle SQL Date format
-            dueTime: '23:59', // SQL View might not have time, default it
-            fileName: 'Download', // View might not return filename, generic label
-            // Note: View_Assignments might need file data to download, but usually we fetch specific entity for that.
-            // For now, we assume simple list. If you need file data in list, View needs updating.
+            id: a.AssignmentID,
+            title: a.Title,
+            // Splitting combined deadline back into date and time for the UI
+            dueDate: a.Deadline ? a.Deadline.split(' ')[0] : '', 
+            dueTime: a.Deadline ? a.Deadline.split(' ')[1] : '23:59',
+            fileData: a.FileData,
+            extension: a.Extension
         }));
         setAssignments(cleanAssign);
       }
       
-      // 2. Load Materials
+      // 2. Load Materials using Attribute 37 filter
       const matResponse = await fetch(`http://localhost:5000/api/materials/${courseId}`);
-      if (matResponse.ok) {
-        const rawMat = await matResponse.json();
-        const cleanMat = rawMat.map(m => ({
-            id: m.MaterialID,
-            title: m.Title || m.MaterialTitle,
-            type: m.Type || m.MaterialType,
-            fileName: 'Download',
-            fileEntityID: m.FileEntityID // Crucial for downloading
-        }));
-        setMaterials(cleanMat);
-      }
+            if (matResponse.ok) {
+              const rawMat = await matResponse.json();
+              const cleanMat = rawMat.map(m => ({
+                  id: m.MaterialID,
+                  title: m.Title,
+                  // CRITICAL: Map the 'Extension' column from your SQL View
+                  extension: m.Extension || 'link', 
+                  fileData: m.FileData
+              }));
+                  setMaterials(cleanMat);
+            }
 
-      // 3. Load Submissions (Assuming you have an endpoint or using Entity logic)
-      // Since we didn't explicitly build GET /api/submissions in server.js yet, 
-      // we might skip this or use a generic fetch if you added it.
-      // For now, keeping your code but wrapping in try/catch to not block others.
+      // 3. Load Submissions placeholder logic
       try {
-          const subResponse = await fetch(`/api/submissions?courseId=${courseId}`);
+          const subResponse = await fetch(`http://localhost:5000/api/submissions?courseId=${courseId}`);
           if (subResponse.ok) {
             const subData = await subResponse.json();
             setSubmissions(subData);
@@ -77,115 +73,104 @@ const CourseManager = ({ course, onBack }) => {
     }
   };
 
-  // --- Helper: Robust Download Function ---
-  // If we have direct base64 data, download it. 
-  // If we only have an ID (from View), fetch the full entity then download.
-  const downloadFile = async (fileData, fileName, entityId) => {
-    try {
-      let dataToDownload = fileData;
-      let nameToDownload = fileName;
+  // --- Helper: Download Function ---
+ const downloadFile = (base64Data, fileName, extension) => {
+  if (!base64Data || base64Data === "NULL") return alert("No file data available.");
 
-      // If we don't have the binary data but have the ID, fetch it first
-      if (!dataToDownload && entityId) {
-          const res = await fetch(`http://localhost:5000/api/entity/${entityId}`);
-          const entity = await res.json();
-          // Logic depends on how you saved it. 
-          // If saved as 'File' attribute:
-          dataToDownload = entity.File || entity.MaterialFile || entity.file; 
-          // If strictly binary in DB, backend returns "FILE_BINARY_DATA". 
-          // Real apps usually stream bytes. For this EAV demo, 
-          // we might need the specific Attribute that holds the Base64 string.
-          // Since our server GET /entity/:id returns "FILE_BINARY_DATA" text for binary columns,
-          // direct download from that endpoint in this specific setup is tricky without a specific "download" endpoint.
-          // However, if you saved 'File' as Base64 string in ValueText (small files), it works.
-          // If saved in ValueBinary, we need a specific endpoint to stream it back.
-          
-          // For this specific project scope/demo:
-          alert("File download simulated. In a real app, this streams the binary data.");
-          return;
-      }
+  try {
+    // 1. Clean data: Remove potential XML tags from SQL or Data URI headers
+    let cleanBase64 = base64Data.replace(/<[^>]*>/g, "").trim();
+    if (cleanBase64.includes(',')) cleanBase64 = cleanBase64.split(',')[1];
 
-      if (!dataToDownload) return alert("No file data available.");
-
-      const link = document.createElement('a');
-      link.href = dataToDownload; // Assumes Base64 Data URI
-      link.download = nameToDownload || 'download';
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => {
-        document.body.removeChild(link);
-      }, 100);
-    } catch (err) {
-      console.error("Download failed:", err);
-      alert("Failed to download file.");
+    // 2. Decode
+    const byteCharacters = atob(cleanBase64);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
     }
-  };
+    
+    // 3. Download
+    const blob = new Blob([new Uint8Array(byteNumbers)], { type: 'application/octet-stream' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName.endsWith(extension) ? fileName : `${fileName}${extension}`;
+    document.body.appendChild(link);
+    link.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(link);
+  } catch (err) {
+    alert("File conversion failed. Try uploading a fresh copy of this assignment.");
+  }
+};
 
   // --- Shared File Handler ---
   const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (readerEvent) => {
-        setSelectedFile({
-          name: file.name,
-          type: file.type,
-          data: readerEvent.target.result // Base64 string
-        });
-      };
-      reader.readAsDataURL(file);
-    }
-  };
+  const file = e.target.files[0];
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = (readerEvent) => {
+      // Extract the extension (e.g., "pdf" or "docx")
+      const fileExt = file.name.split('.').pop(); 
+      
+      setSelectedFile({
+        name: file.name,
+        type: file.type,
+        extension: `.${fileExt}`, // Store the dot extension
+        data: readerEvent.target.result
+      });
+    };
+    reader.readAsDataURL(file);
+  }
+};
 
-  // --- Assignment Handlers ---
+  // --- Assignment Handlers (UPDATED) ---
   const handleAssignmentSubmit = async (e) => {
     e.preventDefault();
     if (!selectedFile) return alert("Please upload a file.");
 
     const courseId = course.id || course.CourseID;
-    // Generate ID: ASG + Timestamp
     const newId = `ASG${Date.now()}`;
 
     try {
-      const payload = {
-        id: newId,
-        type: 'assignment',
-        attributes: {
-            AssignmentTitle: formData.title,
-            DueDate: formData.dueDate, // YYYY-MM-DD
-            RelatedCourseId: courseId,
-            File: selectedFile.data // Save Base64 directly (for demo simplicity)
+        const payload = {
+            id: newId,
+            type: 'assignment',
+            attributes: {
+                AssignmentTitle: formData.title,    // Attr 33
+                DueDate: `${formData.dueDate} ${formData.dueTime}`, // Attr 34
+                
+                // 🛑 CHANGE THIS KEY to match image_2cd563.png exactly
+                RelatedCourseId: courseId,          // Attr 37
+                
+                MaterialFile: selectedFile.data,     // Attr 31 or 5
+                MaterialType: selectedFile.extension
+            }
+        };
+
+        const response = await fetch('http://localhost:5000/api/entity', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+            alert("Assignment published!");
+            setShowUploadModal(false);
+            refreshData(); 
         }
-      };
-
-      const response = await fetch('http://localhost:5000/api/entity', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      
-      alert("Assignment uploaded successfully!");
-      setShowUploadModal(false);
-      setFormData({ title: '', dueDate: '', dueTime: '23:59' });
-      setSelectedFile(null);
-      refreshData();
     } catch (error) {
-      console.error('Error uploading assignment:', error);
-      alert('Failed to upload assignment');
+        console.error('Error:', error);
     }
-  };
+};
 
-  const handleRemoveAssignment = async (id) => {
-    if (confirm('Remove this assignment?')) {
+  const handleRemoveEntity = async (id) => {
+    if (confirm('Are you sure you want to remove this item?')) {
       try {
-        const response = await fetch(`http://localhost:5000/api/entity/${id}`, { method: 'DELETE' });
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        await fetch(`http://localhost:5000/api/entity/${id}`, { method: 'DELETE' });
         refreshData();
       } catch (error) {
-        console.error('Error deleting assignment:', error);
-        alert('Failed to delete assignment');
+        console.error('Error deleting:', error);
       }
     }
   };
@@ -196,16 +181,19 @@ const CourseManager = ({ course, onBack }) => {
     const courseId = course.id || course.CourseID;
     const newId = `MAT${Date.now()}`;
     
+    // Extract extension (e.g., ".pdf") if a file is selected
+    const fileExt = selectedFile ? `.${selectedFile.name.split('.').pop()}` : '';
+
     try {
       const payload = {
           id: newId,
-          type: 'material',
-          attributes: {
-              MaterialTitle: materialForm.title,
-              MaterialType: materialForm.type,
-              RelatedCourseId: courseId,
-              // Only save file if type is file
-              ...(materialForm.type === 'file' && selectedFile ? { MaterialFile: selectedFile.data } : {})
+    type: 'material',
+    attributes: {
+      MaterialTitle: materialForm.title,
+      // 2. Save the extension into Attribute 30
+      MaterialType: materialForm.type === 'file' ? fileExt : 'link', 
+      RelatedCourseId: courseId, // Attribute 32
+      ...(materialForm.type === 'file' && selectedFile ? { MaterialFile: selectedFile.data } : {})
           }
       };
 
@@ -215,33 +203,21 @@ const CourseManager = ({ course, onBack }) => {
         body: JSON.stringify(payload)
       });
 
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      
-      setShowMaterialModal(false);
-      setMaterialForm({ title: '', type: 'file' });
-      setSelectedFile(null);
-      refreshData();
+      if (response.ok) {
+        alert("Material added successfully!");
+        setShowMaterialModal(false);
+        setMaterialForm({ title: '', type: 'file' });
+        setSelectedFile(null);
+        refreshData();
+      }
     } catch (error) {
       console.error('Error uploading material:', error);
-      alert('Failed to upload material');
     }
-  };
-
-  const handleDeleteMaterial = async (id) => {
-    if (confirm('Remove this material?')) {
-      try {
-        const response = await fetch(`http://localhost:5000/api/entity/${id}`, { method: 'DELETE' });
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        refreshData();
-      } catch (error) {
-        console.error('Error deleting material:', error);
-        alert('Failed to delete material');
-      }
-    }
-  };
+};
 
   return (
     <div className="course-manager">
+      {/* 1. Navigation Header */}
       <button className="btn btn-secondary" onClick={onBack} style={{ marginBottom: '20px' }}>
         <i className="fas fa-arrow-left"></i> Back to Courses
       </button>
@@ -250,14 +226,14 @@ const CourseManager = ({ course, onBack }) => {
         <h2>Managing: {course.title || course.Title}</h2>
       </div>
 
-      {/* --- Tab Navigation --- */}
+      {/* 2. Tab Menu */}
       <div className="auth-tabs" style={{ marginTop: '20px', marginBottom: '20px' }}>
         <div className={`auth-tab ${activeTab === 'assignments' ? 'active' : ''}`} onClick={() => setActiveTab('assignments')}>Assignments</div>
         <div className={`auth-tab ${activeTab === 'materials' ? 'active' : ''}`} onClick={() => setActiveTab('materials')}>Course Materials</div>
         <div className={`auth-tab ${activeTab === 'submissions' ? 'active' : ''}`} onClick={() => setActiveTab('submissions')}>Submissions</div>
       </div>
 
-      {/* --- ASSIGNMENTS TAB --- */}
+      {/* 3. Tab Content: Assignments */}
       {activeTab === 'assignments' && (
         <div className="widget large">
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
@@ -265,24 +241,34 @@ const CourseManager = ({ course, onBack }) => {
             <button className="btn btn-primary" onClick={() => setShowUploadModal(true)}>+ New Assignment</button>
           </div>
           <div className="assignments-list">
-            {assignments.length === 0 ? <p className="placeholder-text">No assignments uploaded.</p> : assignments.map(a => (
-              <div key={a.id} className="assignment-item" style={{ padding: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #eee' }}>
-                <div className="assignment-info">
-                  <div className="assignment-name" style={{fontWeight:'bold'}}>{a.title}</div>
-                  <div className="assignment-details" style={{fontSize:'0.9rem', color:'#666'}}>
-                    <i className="fas fa-calendar-alt"></i> Due: {a.dueDate}
+            {assignments.length === 0 ? (
+              <p className="placeholder-text">No assignments uploaded.</p>
+            ) : (
+              assignments.map(a => (
+                <div key={a.id} className="assignment-item" style={{ padding: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #eee' }}>
+                  <div className="assignment-info">
+                    <div className="assignment-name" style={{fontWeight:'bold'}}>{a.title}</div>
+                    <div className="assignment-details" style={{fontSize:'0.9rem', color:'#666'}}>
+                      <i className="fas fa-calendar-alt"></i> Due: {a.dueDate} at {a.dueTime}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    {/* UPDATED: Passing a.extension to the download function */}
+                    <button className="btn btn-success" onClick={() => downloadFile(a.fileData, a.title, a.extension)}>
+                      <i className="fas fa-download"></i>
+                    </button>
+                    <button className="btn btn-danger" onClick={() => handleRemoveEntity(a.id)}>
+                      <i className="fas fa-trash"></i>
+                    </button>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <button className="btn btn-danger" onClick={() => handleRemoveAssignment(a.id)}><i className="fas fa-trash"></i></button>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       )}
 
-      {/* --- MATERIALS TAB --- */}
+      {/* 4. Tab Content: Materials */}
       {activeTab === 'materials' && (
         <div className="widget large">
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
@@ -290,31 +276,44 @@ const CourseManager = ({ course, onBack }) => {
             <button className="btn btn-primary" onClick={() => setShowMaterialModal(true)}>+ Add Material</button>
           </div>
           <div className="materials-list">
-            {materials.length === 0 ? <p className="placeholder-text">No materials uploaded yet.</p> : materials.map((mat, index) => (
-              <div key={mat.id || index} className="material-item" style={{ display:'flex', justifyContent: 'space-between', padding:'10px', borderBottom:'1px solid #eee' }}>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <i className={`fas fa-${mat.type === 'file' ? 'file-pdf' : 'link'}`} style={{ marginRight: '15px', color: 'var(--primary)', fontSize: '1.2rem' }}></i>
-                  <div>
-                    <strong style={{ display: 'block' }}>{mat.title}</strong>
-                    <span style={{ fontSize: '0.8rem', color: '#666' }}>{mat.type}</span>
+            {materials.length === 0 ? (
+              <p className="placeholder-text">No materials uploaded yet.</p>
+            ) : (
+              materials.map((mat) => (
+                <div key={mat.id} className="material-item" style={{ display:'flex', justifyContent: 'space-between', padding:'10px', borderBottom:'1px solid #eee' }}>
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      {/* Icon changes based on whether it is a link or a file extension */}
+                      <i className={`fas fa-${mat.extension === 'link' ? 'link' : 'file-pdf'}`} 
+                        style={{ marginRight: '15px', color: 'var(--primary)', fontSize: '1.2rem' }}></i>
+                      <div>
+                        <strong style={{ display: 'block' }}>{mat.title}</strong>
+                        <span style={{ fontSize: '0.8rem', color: '#666' }}>{mat.extension}</span>
+                      </div>
+                    </div>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    {/* UPDATED: Materials also use a.extension for downloads */}
+                              {mat.extension !== 'link' && (
+                  <button className="btn btn-success" onClick={() => downloadFile(mat.fileData, mat.title, mat.extension)}>
+                    <i className="fas fa-download"></i>
+                  </button>
+                )}
+                <button className="btn btn-danger" onClick={() => handleRemoveEntity(mat.id)}>
+                  <i className="fas fa-trash"></i>
+                    </button>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                   {/* We pass the entityID so the downloader can fetch the file content if needed */}
-                   <button className="btn btn-success" onClick={() => downloadFile(null, mat.title, mat.fileEntityID)}><i className="fas fa-download"></i></button>
-                   <button className="btn btn-danger" onClick={() => handleDeleteMaterial(mat.id)}><i className="fas fa-trash"></i></button>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       )}
 
-      {/* --- SUBMISSIONS TAB --- */}
+      {/* 5. Tab Content: Submissions */}
       {activeTab === 'submissions' && (
         <div className="widget large">
           <h3 style={{ marginBottom: '15px' }}>Student Submissions</h3>
-          <p className="placeholder-text">Feature coming soon (requires submission API).</p>
+          <p className="placeholder-text">Total Submissions: {submissions.length}</p>
+          <p className="placeholder-text">Submissions feature is currently under development.</p>
         </div>
       )}
 
@@ -330,13 +329,14 @@ const CourseManager = ({ course, onBack }) => {
               <div className="modal-body">
                 <div className="form-group"><label>Title</label><input type="text" className="form-control" required value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} /></div>
                 <div style={{ display: 'flex', gap: '15px' }}>
-                  <div className="form-group" style={{ flex: 1 }}><label>Date</label><input type="date" className="form-control" required value={formData.dueDate} onChange={e => setFormData({ ...formData, dueDate: e.target.value })} /></div>
+                  <div className="form-group" style={{ flex: 1 }}><label>Deadline Date</label><input type="date" className="form-control" required value={formData.dueDate} onChange={e => setFormData({ ...formData, dueDate: e.target.value })} /></div>
+                  <div className="form-group" style={{ flex: 1 }}><label>Deadline Time</label><input type="time" className="form-control" required value={formData.dueTime} onChange={e => setFormData({ ...formData, dueTime: e.target.value })} /></div>
                 </div>
-                <div className="form-group"><label>File</label><input type="file" className="form-control" onChange={handleFileChange} required /></div>
+                <div className="form-group"><label>Assignment File</label><input type="file" className="form-control" onChange={handleFileChange} required /></div>
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowUploadModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Upload</button>
+                <button type="submit" className="btn btn-primary">Publish Assignment</button>
               </div>
             </form>
           </div>
@@ -371,6 +371,5 @@ const CourseManager = ({ course, onBack }) => {
       )}
     </div>
   );
-};
-
+}
 export default CourseManager;

@@ -31,11 +31,11 @@ const InstructorCourses = ({ user }) => {
       const enrollRes = await fetch('http://localhost:5000/api/enrollments');
       const allEnrollments = await enrollRes.json() || [];
 
-      // Group enrollments by CourseID
+      // 3. Group by CourseId using the exact column names from image_2e8973
       const eMap = {};
       allEnrollments.forEach(e => {
-          // Normalize keys (API returns PascalCase, we need consistent access)
-          const cId = e.CourseId || e.courseId;
+          // Note: Use 'CourseId' (PascalCase) to match your table
+          const cId = e.CourseId; 
           if (!eMap[cId]) eMap[cId] = [];
           eMap[cId].push(e);
       });

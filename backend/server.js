@@ -252,25 +252,120 @@ app.put('/api/bookings/:id', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+app.post('/api/courses/assign', async (req, res) => {
+    const { courseId, instructorId } = req.body;
 
-// --- ASSIGNMENTS (Filtered by Course) ---
-app.get('/api/assignments/:courseId', async (req, res) => {
+    if (!courseId || !instructorId) {
+        return res.status(400).json({ error: 'CourseID and InstructorID are required' });
+    }
+
     try {
         const pool = await poolPromise;
-        const result = await pool.request().input('cid', sql.VarChar, req.params.courseId)
-            .query(`SELECT * FROM View_Assignments WHERE CourseID = @cid`);
+
+        // 1. Check if this Course already has an 'InstructorId' row in EntityValues
+        // We look for Attribute ID 27 (InstructorId)
+        const checkQuery = `
+            SELECT 1 FROM EntityValues 
+            WHERE EntityID = @CourseID 
+            AND AttributeID = (SELECT Id FROM Attributes WHERE AttributeName = 'InstructorId')
+        `;
+
+        const checkRes = await pool.request()
+             .input('CourseID', sql.NVarChar, courseId)
+             .query(checkQuery);
+
+        if (checkRes.recordset.length > 0) {
+            // A. UPDATE existing assignment
+            const updateQuery = `
+                UPDATE EntityValues
+                SET ValueText = @InstructorID
+                WHERE EntityID = @CourseID
+                AND AttributeID = (SELECT Id FROM Attributes WHERE AttributeName = 'InstructorId')
+            `;
+            await pool.request()
+                .input('InstructorID', sql.NVarChar, instructorId)
+                .input('CourseID', sql.NVarChar, courseId)
+                .query(updateQuery);
+        } else {
+            // B. INSERT new assignment (if it was NULL before)
+            const insertQuery = `
+                INSERT INTO EntityValues (EntityId, AttributeId, ValueText)
+                SELECT @CourseID, Id, @InstructorID
+                FROM Attributes 
+                WHERE AttributeName = 'InstructorId'
+            `;
+            await pool.request()
+                .input('InstructorID', sql.NVarChar, instructorId)
+                .input('CourseID', sql.NVarChar, courseId)
+                .query(insertQuery);
+        }
+
+        res.json({ success: true, message: 'Instructor assigned successfully' });
+
+    } catch (err) {
+        console.error('Error assigning instructor:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+app.delete('/api/courses/unassign/:courseId', async (req, res) => {
+    const { courseId } = req.params;
+
+    try {
+        const pool = await poolPromise;
+
+        // We delete the specific value for Attribute 27 (InstructorId) 
+        // linked to this course
+        const query = `
+            DELETE FROM EntityValues
+            WHERE EntityID = @CourseID
+            AND AttributeID = (SELECT Id FROM Attributes WHERE AttributeName = 'InstructorId')
+        `;
+
+        const result = await pool.request()
+            .input('CourseID', sql.NVarChar, courseId)
+            .query(query);
+
+        if (result.rowsAffected[0] > 0) {
+            res.json({ success: true, message: 'Successfully left the course' });
+        } else {
+            res.status(404).json({ error: 'Assignment not found' });
+        }
+
+    } catch (err) {
+        console.error('Error unassigning instructor:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+// --- ASSIGNMENTS (Filtered by Course) ---
+// GET: Fetch all assignments for a specific course
+app.get('/api/assignments/:courseId', async (req, res) => {
+    const { courseId } = req.params;
+    try {
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .input('CourseID', sql.NVarChar, courseId)
+            .query(`SELECT * FROM View_Assignments WHERE CourseID = @CourseID`);
+        
         res.json(result.recordset);
-    } catch (err) { res.status(500).send(err.message); }
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // --- MATERIALS (Lecture Slides/PDFs) ---
+// GET: Fetch all materials for a specific course
 app.get('/api/materials/:courseId', async (req, res) => {
+    const { courseId } = req.params;
     try {
         const pool = await poolPromise;
-        const result = await pool.request().input('cid', sql.VarChar, req.params.courseId)
-            .query(`SELECT * FROM View_Materials WHERE CourseID = @cid`);
+        const result = await pool.request()
+            .input('CourseID', sql.NVarChar, courseId)
+            .query(`SELECT * FROM View_Materials WHERE CourseID = @CourseID`);
+        
         res.json(result.recordset);
-    } catch (err) { res.status(500).send(err.message); }
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // --- STUDENT REQUESTS (Enrollment History) ---
