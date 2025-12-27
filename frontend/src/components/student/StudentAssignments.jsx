@@ -12,8 +12,6 @@ const StudentAssignments = ({ user }) => {
 
   const loadData = async () => {
     try {
-      // 1. Fetch Enrolled Courses
-      // Use the correct endpoint from our server.js
       const coursesRes = await fetch(`http://localhost:5000/api/my-courses/${user.id}`);
       const enrolledCourses = await coursesRes.json() || [];
 
@@ -22,35 +20,48 @@ const StudentAssignments = ({ user }) => {
         return;
       }
 
-      // 2. Fetch Assignments for EACH Course
-      // We run these requests in parallel for speed
       const assignmentPromises = enrolledCourses.map(async (course) => {
-          // Note: SQL View returns PascalCase 'CourseID'
-          const cId = course.CourseID || course.id; 
+          const cId = course.CourseId || course.CourseID; 
           const res = await fetch(`http://localhost:5000/api/assignments/${cId}`);
           const assignments = await res.json() || [];
           
-          // Attach course title to each assignment for display
           return assignments.map(a => ({
               ...a,
               courseTitle: course.Title || course.title,
-              courseId: cId
+              courseId: cId,
+              status: 'PENDING' // Default status
           }));
       });
 
       const results = await Promise.all(assignmentPromises);
-      const allAssignments = results.flat(); // Combine into one list
-
-      // 3. Load Student's Previous Submissions (Optional, but good for UI)
-      // Since we don't have a specific GET /submissions API for students yet,
-      // we will assume "submissionStatus" is false for now. 
-      // In a full app, you'd fetch your submissions here to show green checks.
-      
-      setMyAssignments(allAssignments);
+      setMyAssignments(results.flat());
       
     } catch (err) {
       console.error('Error loading assignments:', err);
       setMyAssignments([]);
+    }
+  };
+
+  const downloadInstruction = (base64Data, fileName, extension) => {
+    if (!base64Data) return alert("No instruction file available.");
+    try {
+      const base64Content = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+      const byteCharacters = atob(base64Content.trim());
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const blob = new Blob([new Uint8Array(byteNumbers)], { type: 'application/octet-stream' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${fileName}${extension || '.pdf'}`;
+      document.body.appendChild(link);
+      link.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+    } catch (err) {
+      alert("Error downloading instructions.");
     }
   };
 
@@ -61,7 +72,8 @@ const StudentAssignments = ({ user }) => {
       reader.onload = (event) => {
         setSubmissionFile({
           name: file.name,
-          data: event.target.result // Base64 string
+          extension: `.${file.name.split('.').pop()}`,
+          data: event.target.result
         });
       };
       reader.readAsDataURL(file);
@@ -69,53 +81,51 @@ const StudentAssignments = ({ user }) => {
   };
 
   const handleSubmitWork = async (e) => {
-    e.preventDefault();
-    if (!submissionFile) return alert("Please select a file to submit.");
+  e.preventDefault();
+  if (!submissionFile) return alert("Please select a file to submit.");
 
-    // Generate Submission ID
-    const newId = `SUB${Date.now()}`;
+  // Use the ID from the selectedAssignment state
+  const targetAssignmentId = selectedAssignment.AssignmentID;
+  const targetCourseId = selectedAssignment.courseId;
+  const newId = `SUB${Date.now()}`;
 
-    try {
-      // FIX: Use the Generic EAV Endpoint
-      const payload = {
-          id: newId,
-          type: 'submission',
-          attributes: {
-              StudentId: user.id,
-              AssignmentId: selectedAssignment.AssignmentID || selectedAssignment.id,
-              CourseId: selectedAssignment.courseId,
-              SubmissionDate: new Date().toISOString(),
-              File: submissionFile.data, // Base64
-              FileName: submissionFile.name
-          }
-      };
+  try {
+    const payload = {
+        id: newId,
+        type: 'submission',
+        attributes: {
+            // These keys must match your SQL View exactly to avoid NULLs
+            StudentId: user.id,
+            AssignmentId: targetAssignmentId, 
+            CourseId: targetCourseId,
+            SubmissionDate: new Date().toLocaleString(),
+            MaterialFile: submissionFile.data,
+            MaterialType: submissionFile.extension 
+        }
+    };
 
-      const response = await fetch('http://localhost:5000/api/entity', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+    const response = await fetch('http://localhost:5000/api/entity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
 
-      if (response.ok) {
-        alert("Assignment submitted successfully!");
-        setSubmitModalOpen(false);
-        setSubmissionFile(null);
-        // Ideally we would reload data here or mark this assignment as 'submitted' locally
-      } else {
-        alert("Error submitting assignment");
-      }
-    } catch (err) {
-      console.error('Error submitting assignment:', err);
-      alert('Error: ' + err.message);
+    if (response.ok) {
+      alert("Assignment submitted successfully!");
+      
+      // Update local state so the badge turns green
+      setMyAssignments(prev => prev.map(asgn => 
+        asgn.AssignmentID === targetAssignmentId ? { ...asgn, status: 'SUBMITTED' } : asgn
+      ));
+
+      setSubmitModalOpen(false);
+      setSubmissionFile(null);
     }
-  };
-
-  // Helper to download the Instructor's assignment file
-  const downloadInstruction = async (assignment) => {
-     // Use the backend entity ID if available, or just alert if only view data
-     alert("Downloading instructions...");
-     // In real app: fetch(`http://localhost:5000/api/entity/${assignment.id}`)
-  };
+  } catch (err) {
+    console.error('Error submitting assignment:', err);
+    alert("Submission failed. Check console for details.");
+  }
+};
 
   return (
     <div id="assignments-section" className="content-section">
@@ -125,68 +135,69 @@ const StudentAssignments = ({ user }) => {
         {myAssignments.length === 0 ? (
           <p className="placeholder-text">No assignments posted for your courses.</p>
         ) : (
-          myAssignments.map(a => {
-            // Mapping keys from SQL View (PascalCase) or lowercase fallback
-            const aId = a.AssignmentID || a.id;
-            const aTitle = a.Title || a.title;
-            const aDue = a.DueDate || a.dueDate;
+          myAssignments.map(a => (
+            <div key={a.AssignmentID} className="request-item" style={{ 
+              borderLeft: `5px solid ${a.status === 'SUBMITTED' ? '#28a745' : 'var(--primary)'}`, 
+              backgroundColor: 'white', 
+              marginBottom: '15px' 
+            }}>
+              <div className="request-header">
+                <div className="request-info">
+                  <h4 style={{ color: 'var(--primary)' }}>{a.courseId}: {a.courseTitle}</h4>
+                  <div style={{ fontWeight: '600', fontSize: '1.1rem' }}>{a.Title}</div>
+                </div>
+                <span className="request-status" style={{ 
+                  backgroundColor: a.status === 'SUBMITTED' ? '#28a745' : '#ffc107', 
+                  color: 'white',
+                  padding: '5px 10px',
+                  borderRadius: '4px',
+                  fontSize: '0.8rem'
+                }}>
+                  {a.status}
+                </span>
+              </div>
 
-            return (
-              <div key={aId} className="request-item" style={{ 
-                  borderLeft: '5px solid var(--primary)', 
-                  backgroundColor: 'white',
-                  marginBottom: '15px'
-              }}>
-                <div className="request-header">
-                  <div className="request-info">
-                    <h4 style={{ color: 'var(--primary)' }}>{a.courseId}: {a.courseTitle}</h4>
-                    <div style={{ fontWeight: '600', fontSize: '1.1rem' }}>{aTitle}</div>
-                  </div>
-                  {/* Status badge - defaulted to Pending as we aren't fetching submissions yet */}
-                  <span className="request-status status-pending">
-                    PENDING
-                  </span>
+              <div style={{ backgroundColor: '#f8f9fa', padding: '15px', borderRadius: '8px', marginTop: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <p style={{ margin: 0, fontSize: '0.9rem', color: '#dc3545', fontWeight: 'bold' }}>
+                    <i className="fas fa-clock"></i> Due: {a.Deadline}
+                  </p>
                 </div>
 
-                <div style={{ 
-                    backgroundColor: '#f8f9fa', padding: '15px', borderRadius: '8px', 
-                    marginTop: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' 
-                }}>
-                  <div>
-                    <p style={{ margin: 0, fontSize: '0.9rem', color: '#dc3545', fontWeight: 'bold' }}>
-                      <i className="fas fa-clock"></i> Due: {aDue}
-                    </p>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '10px' }}>
-                    {/* Submit Button */}
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button className="btn btn-success" onClick={() => downloadInstruction(a.FileData, a.Title, a.Extension)}>
+                    <i className="fas fa-download"></i> Instructions
+                  </button>
+                  
+                  {a.status === 'SUBMITTED' ? (
+                    <button className="btn btn-secondary" disabled>Handed In</button>
+                  ) : (
                     <button className="btn btn-primary" onClick={() => {
                         setSelectedAssignment(a);
                         setSubmitModalOpen(true);
                     }}>
-                        Submit Work
+                      Submit Work
                     </button>
-                  </div>
+                  )}
                 </div>
               </div>
-            );
-          })
+            </div>
+          ))
         )}
       </div>
 
-      {/* Submission Modal */}
       {submitModalOpen && (
         <div className="modal" style={{ display: 'flex' }}>
           <div className="modal-content">
             <div className="modal-header">
-              <h3>Submit: {selectedAssignment?.Title || selectedAssignment?.title}</h3>
+              <h3>Submit: {selectedAssignment?.Title}</h3>
               <span className="close" onClick={() => setSubmitModalOpen(false)}>&times;</span>
             </div>
             <form onSubmit={handleSubmitWork}>
               <div className="modal-body">
                 <p><strong>Course:</strong> {selectedAssignment?.courseId}</p>
                 <div className="form-group">
-                  <label>Select Your File (PDF, Word, etc.)</label>
+                  <label>Select Your File</label>
                   <input type="file" className="form-control" required onChange={handleFileChange} />
                 </div>
               </div>
@@ -202,4 +213,4 @@ const StudentAssignments = ({ user }) => {
   );
 };
 
-export default StudentAssignments;
+export default StudentAssignments;  

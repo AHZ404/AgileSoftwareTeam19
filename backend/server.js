@@ -351,6 +351,40 @@ app.get('/api/assignments/:courseId', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// Get submissions from the specialized View
+app.get('/api/submissions/:studentId', async (req, res) => {
+    try {
+        const { studentId } = req.params;
+        const pool = await sql.connect(dbConfig);
+        
+        // Query the new View_Submissions
+        const result = await pool.request()
+            .input('studentId', sql.NVarChar, studentId)
+            .query('SELECT * FROM View_Submissions WHERE StudentId = @studentId');
+        
+        res.json(result.recordset);
+    } catch (err) {
+        console.error('SQL error', err);
+        res.status(500).json({ error: 'Database error fetching submissions' });
+    }
+});
+
+// Optional: Get all submissions for an assignment (Instructor use)
+app.get('/api/assignment-submissions/:assignmentId', async (req, res) => {
+    try {
+        const { assignmentId } = req.params;
+        const pool = await sql.connect(dbConfig);
+        
+        const result = await pool.request()
+            .input('assignmentId', sql.NVarChar, assignmentId)
+            .query('SELECT * FROM View_Submissions WHERE AssignmentID = @assignmentId');
+        
+        res.json(result.recordset);
+    } catch (err) {
+        console.error('SQL error', err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
 
 // --- MATERIALS (Lecture Slides/PDFs) ---
 // GET: Fetch all materials for a specific course

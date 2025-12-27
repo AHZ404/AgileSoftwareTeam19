@@ -74,35 +74,51 @@ const CourseManager = ({ course, onBack, user }) => {
   };
 
   // --- Helper: Download Function ---
- const downloadFile = (base64Data, fileName, extension) => {
-  if (!base64Data || base64Data === "NULL") return alert("No file data available.");
-
-  try {
-    // 1. Clean data: Remove potential XML tags from SQL or Data URI headers
-    let cleanBase64 = base64Data.replace(/<[^>]*>/g, "").trim();
-    if (cleanBase64.includes(',')) cleanBase64 = cleanBase64.split(',')[1];
-
-    // 2. Decode
-    const byteCharacters = atob(cleanBase64);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
+  const downloadFile = (base64Data, fileName, extension) => {
+    if (!base64Data || base64Data === "NULL") {
+      alert("No file data available for this item.");
+      return;
     }
-    
-    // 3. Download
-    const blob = new Blob([new Uint8Array(byteNumbers)], { type: 'application/octet-stream' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = fileName.endsWith(extension) ? fileName : `${fileName}${extension}`;
-    document.body.appendChild(link);
-    link.click();
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(link);
-  } catch (err) {
-    alert("File conversion failed. Try uploading a fresh copy of this assignment.");
-  }
-};
+
+    try {
+      // 1. Clean the string: Remove XML tags (from SQL FOR XML) or Data URI headers
+      let cleanBase64 = base64Data.replace(/<[^>]*>/g, "").trim();
+      if (cleanBase64.includes(',')) {
+        cleanBase64 = cleanBase64.split(',')[1];
+      }
+
+      // 2. Decode Base64 to Binary
+      const byteCharacters = atob(cleanBase64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+
+      // 3. Create Blob and Trigger Download
+      const blob = new Blob([byteArray], { type: 'application/octet-stream' });
+      const url = window.URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = url;
+
+      // Ensure the filename has the correct extension from Attribute 30
+      const dotExt = extension && extension.startsWith('.') ? extension : `.${extension || 'pdf'}`;
+      link.download = fileName.toLowerCase().endsWith(dotExt.toLowerCase()) 
+        ? fileName 
+        : `${fileName}${dotExt}`;
+
+      document.body.appendChild(link);
+      link.click();
+
+      // 4. Cleanup to prevent memory leaks
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Download error:", err);
+      alert("The file format is invalid. Please contact the instructor.");
+    }
+  };
 
   // --- Shared File Handler ---
   const handleFileChange = (e) => {
