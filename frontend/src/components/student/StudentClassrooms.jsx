@@ -11,12 +11,15 @@ const StudentClassrooms = ({ user }) => {
   
   // State for Lists
   const [myBookings, setMyBookings] = useState([]);      // Shows ALL my history
-  const [pendingRequests, setPendingRequests] = useState([]); // Shows only PENDING (for advisors)
+  const [pendingRequests, setPendingRequests] = useState([]); // Shows only PENDING (for advisors/instructors)
   
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [purpose, setPurpose] = useState('');
+
+  // Helper to check if user is Faculty (Advisor or Instructor)
+  const isFaculty = user.role === 'advisor' || user.role === 'instructor';
 
   // --- 1. Load Data (Fixed Logic) ---
   const loadData = async () => {
@@ -27,7 +30,7 @@ const StudentClassrooms = ({ user }) => {
       console.log("--- DEBUG BOOKINGS DATA ---");
       allBookings.forEach(b => {
           console.log(`Booking: ${b.BookingID} | Status: ${b.Status} | Requester: ${b.RequesterID}`);
-          });
+      });
       
       // B. Filter: "My Bookings" (SHOW EVERYTHING: Pending, Approved, Rejected)
       // We do NOT filter by status here, so approved items stay visible.
@@ -36,9 +39,9 @@ const StudentClassrooms = ({ user }) => {
       );
       setMyBookings(myOwn);
 
-      // C. Filter: "Pending Requests" (For Advisors Only)
-      // This list ONLY shows pending items because the advisor needs to act on them.
-      if (user.role === 'advisor') {
+      // C. Filter: "Pending Requests" (For Advisors AND Instructors)
+      // This list ONLY shows pending items because the faculty needs to act on them.
+      if (isFaculty) {
         const pending = allBookings.filter(b => {
           const status = (b.Status || b.BookingStatus || 'pending').toLowerCase();
           return status === 'pending' && b.RequesterID !== user.id;
@@ -80,7 +83,7 @@ const StudentClassrooms = ({ user }) => {
         (b.Room === room.name || b.RoomName === room.name) &&
         (b.Date === filters.date || b.BookingDate === filters.date) &&
         (b.Time === `${filters.start}-${filters.end}` || b.BookingTime === `${filters.start}-${filters.end}`) &&
-        (b.Status !== 'rejected') // Optional: Allow re-booking if previous was rejected
+        (b.Status !== 'rejected') 
     );
 
     if (isConflict) {
@@ -96,7 +99,8 @@ const StudentClassrooms = ({ user }) => {
   const handleBookingSubmit = async () => {
     if (!selectedRoom) return;
 
-    const status = user.role === 'advisor' ? 'approved' : 'pending';
+    // Advisors AND Instructors auto-approve their own bookings
+    const status = isFaculty ? 'approved' : 'pending';
     const newId = `BKG${Date.now()}`;
 
     try {
@@ -108,7 +112,7 @@ const StudentClassrooms = ({ user }) => {
             BookingDate: filters.date,
             BookingTime: `${filters.start}-${filters.end}`,
             BookedBy: user.id,
-            Purpose: purpose || (user.role === 'advisor' ? 'Advisor Reservation' : 'Student Booking'),
+            Purpose: purpose || (isFaculty ? 'Faculty Reservation' : 'Student Booking'),
             BookingStatus: status
         }
       };
@@ -120,7 +124,7 @@ const StudentClassrooms = ({ user }) => {
       });
 
       if (res.ok) {
-        alert(user.role === 'advisor' ? 'Room Booked Successfully!' : 'Request Sent! Waiting for approval.');
+        alert(isFaculty ? 'Room Booked Successfully!' : 'Request Sent! Waiting for approval.');
         setModalOpen(false);
         loadData();
       } else {
@@ -131,7 +135,7 @@ const StudentClassrooms = ({ user }) => {
     }
   };
 
-  // --- 3. Advisor Logic (Approve/Reject) ---
+  // --- 3. Review Logic (Approve/Reject for Faculty) ---
   const handleReview = async (bookingId, decision) => {
     if (!confirm(`${decision === 'approved' ? 'Approve' : 'Reject'} this booking?`)) return;
 
@@ -162,7 +166,6 @@ const StudentClassrooms = ({ user }) => {
 
   return (
     <div>
-     
       {/* --- SECTION B: SEARCH FILTERS --- */}
       <h2 style={{color:'var(--primary)'}}>Classroom Availability</h2>
       <div className="classroom-filters" style={{
@@ -191,7 +194,7 @@ const StudentClassrooms = ({ user }) => {
             <p style={{marginBottom:'5px'}}><strong>Capacity:</strong> {room.capacity}</p>
             <p><strong>Location:</strong> {room.location}</p>
             <button className="btn btn-primary" style={{width:'100%', marginTop:'10px'}} onClick={() => openBookingModal(room)}>
-               {user.role === 'advisor' ? 'Reserve Now' : 'Request Booking'}
+               {isFaculty ? 'Reserve Now' : 'Request Booking'}
             </button>
           </div>
         ))}
@@ -202,7 +205,7 @@ const StudentClassrooms = ({ user }) => {
         <h3 style={{color:'var(--secondary)'}}>Your Bookings</h3>
         <div className="requests-grid">
           {myBookings.length === 0 ? <p className="placeholder-text">You have no bookings.</p> : myBookings.map(b => {
-              // Normalize status to lowercase to handle 'Approved' vs 'approved'
+              // Normalize status to lowercase
               const bStatus = (b.Status || b.BookingStatus || 'pending').toLowerCase();
               
               return (
@@ -235,15 +238,15 @@ const StudentClassrooms = ({ user }) => {
                   
                   {/* Cancel Button */}
                   <div style={{marginTop:'10px'}}>
-                     {bStatus === 'pending' && (
-                        <button className="btn btn-danger btn-sm" onClick={() => handleCancel(b.BookingID || b.id)}>Cancel Request</button>
-                     )}
-                     {bStatus === 'approved' && (
-                        <span style={{color:'green', fontSize:'0.9em'}}>✔ Confirmed</span>
-                     )}
-                     {bStatus === 'rejected' && (
-                        <button className="btn btn-secondary btn-sm" onClick={() => handleCancel(b.BookingID || b.id)}>Clear</button>
-                     )}
+                      {bStatus === 'pending' && (
+                         <button className="btn btn-danger btn-sm" onClick={() => handleCancel(b.BookingID || b.id)}>Cancel Request</button>
+                      )}
+                      {bStatus === 'approved' && (
+                         <span style={{color:'green', fontSize:'0.9em'}}>✔ Confirmed</span>
+                      )}
+                      {bStatus === 'rejected' && (
+                         <button className="btn btn-secondary btn-sm" onClick={() => handleCancel(b.BookingID || b.id)}>Clear</button>
+                      )}
                   </div>
                 </div>
               )
@@ -256,7 +259,7 @@ const StudentClassrooms = ({ user }) => {
         <div className="modal" style={{display:'flex'}}>
           <div className="modal-content">
             <div className="modal-header">
-               <h3>Confirm {user.role === 'advisor' ? 'Reservation' : 'Request'}</h3>
+               <h3>Confirm {isFaculty ? 'Reservation' : 'Request'}</h3>
                <span className="close" onClick={() => setModalOpen(false)}>&times;</span>
             </div>
             <div className="modal-body">
@@ -268,7 +271,7 @@ const StudentClassrooms = ({ user }) => {
             <div className="modal-footer">
                <button className="btn btn-secondary" onClick={() => setModalOpen(false)}>Cancel</button>
                <button className="btn btn-primary" onClick={handleBookingSubmit}>
-                 {user.role === 'advisor' ? 'Confirm & Book' : 'Send Request'}
+                 {isFaculty ? 'Confirm & Book' : 'Send Request'}
                </button>
             </div>
           </div>

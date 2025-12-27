@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import Sidebar from '../common/Sidebar';
 import InstructorDashboard from './InstructorDashboard';
-import InstructorBookings from './InstructorBookings';
 import InstructorCourseAssignment from './InstructorCourseAssignment';
 import InstructorCourses from './InstructorCourses';
+import StudentClassrooms from '../student/StudentClassrooms';
 
 const InstructorApp = ({ user, onLogout }) => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -23,7 +23,7 @@ const InstructorApp = ({ user, onLogout }) => {
       case 'dashboard':
         return <InstructorDashboard user={user} />;
       case 'classrooms': // Updated ID
-        return <InstructorBookings user={user} />;
+        return <StudentClassrooms user={user} />;
       case 'course-assignment':
         return <InstructorCourseAssignment user={user} />; 
       case 'courses':
