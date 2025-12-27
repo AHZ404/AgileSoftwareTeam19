@@ -9,18 +9,18 @@ const StudentCourses = ({ user }) => {
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [reason, setReason] = useState('');
 
-  // --- UPDATED: Load Data from Backend ---
+  // --- Load Data from Backend ---
   const loadData = async () => {
     try {
       // 1. Fetch Available Courses
       const coursesRes = await fetch('http://localhost:5000/api/courses');
       const coursesData = await coursesRes.json();
-      setAvailableCourses(coursesData);
+      setAvailableCourses(coursesData || []);
 
       // 2. Fetch My Requests
       const requestsRes = await fetch(`http://localhost:5000/api/requests/${user.id}`);
       const requestsData = await requestsRes.json();
-      setMyRequests(requestsData);
+      setMyRequests(requestsData || []);
       
     } catch (err) {
       console.error("Failed to load course data", err);
@@ -33,10 +33,11 @@ const StudentCourses = ({ user }) => {
 
   const handleRequestClick = (course) => {
     setSelectedCourse(course);
+    setReason(''); // Reset reason
     setModalOpen(true);
   };
 
-  // --- UPDATED: Submit to Backend ---
+  // --- Submit to Backend ---
   const submitRequest = async () => {
     if (!selectedCourse) return;
 
@@ -46,7 +47,8 @@ const StudentCourses = ({ user }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           studentId: user.id,
-          courseId: selectedCourse.CourseID, // Note: SQL View uses 'CourseID'
+          // Ensure we use the correct ID property (CourseID from View_Courses)
+          courseId: selectedCourse.CourseID || selectedCourse.Id, 
           reason: reason || 'No reason provided'
         })
       });
@@ -57,7 +59,7 @@ const StudentCourses = ({ user }) => {
         alert('Request Submitted Successfully!');
         setModalOpen(false);
         setReason('');
-        loadData(); // Refresh list to show new request
+        loadData(); // Refresh list to update button status immediately
       } else {
         alert(result.message || 'Failed to submit request');
       }
@@ -70,15 +72,25 @@ const StudentCourses = ({ user }) => {
     <div>
       <h2 style={{color: 'var(--primary)'}}>Available Courses</h2>
       <div className="courses-grid">
-        {availableCourses.length === 0 ? <p className="placeholder-text">No available courses found in database.</p> : availableCourses.map(course => {
+        {availableCourses.length === 0 ? <p className="placeholder-text">No available courses found.</p> : availableCourses.map(course => {
           
+          // --- LOGIC: Check status for this specific course ---
+          const cId = course.CourseID || course.Id;
+          const existingRequest = myRequests.find(r => r.CourseId === cId);
+          
+          const status = existingRequest ? (existingRequest.Status || '').toLowerCase() : null;
+          const isPending = status === 'pending';
+          const isApproved = status === 'approved';
+          const isRejected = status === 'rejected';
+
           return (
-            <div key={course.CourseID} className="course-card" style={{borderTop: '4px solid var(--primary)', padding: '15px', backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 2px 5px rgba(0,0,0,0.1)'}}>
-               {/* Header: Title + Credits Badge */}
+            <div key={cId} className="course-card" style={{borderTop: `4px solid ${isApproved ? '#28a745' : 'var(--primary)'}`, padding: '15px', backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 2px 5px rgba(0,0,0,0.1)'}}>
+               
+               {/* Header */}
                <div className="course-header" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
-                 <h4 style={{fontSize: '1.1rem', margin: 0, color: '#333'}}>{course.CourseID}: {course.Title}</h4>
+                 <h4 style={{fontSize: '1.1rem', margin: 0, color: '#333'}}>{cId}: {course.Title}</h4>
                  <span className="course-credits" style={{
-                     backgroundColor: 'var(--primary)', 
+                     backgroundColor: isApproved ? '#28a745' : 'var(--primary)', 
                      color: 'white',
                      padding: '4px 8px',
                      borderRadius: '4px',
@@ -89,25 +101,54 @@ const StudentCourses = ({ user }) => {
                  </span>
                </div>
 
-               {/* Schedule Details */}
+               {/* Details */}
                <div style={{color: '#555', fontSize: '0.9rem'}}>
                    <p style={{margin: '4px 0'}}><i className="fas fa-calendar-day"></i> {course.ScheduleDay || 'TBA'}</p>
                    <p style={{margin: '4px 0'}}><i className="fas fa-clock"></i> {course.ScheduleTime || 'TBA'}</p>
+                   <p style={{margin: '4px 0'}}><strong>Instructor:</strong> {course.InstructorID || 'Staff'}</p>
                </div>
 
-               {/* Footer: Register Button */}
+               {/* Footer: Dynamic Button based on Status */}
                <div className="course-footer" style={{borderTop: '1px solid #eee', paddingTop: '15px', marginTop: '10px', textAlign: 'right'}}>
-                 <button className="btn" onClick={() => handleRequestClick(course)} style={{
-                     backgroundColor: '#f72585', 
-                     color: 'white',
-                     border: 'none',
-                     padding: '8px 16px',
-                     borderRadius: '4px',
-                     cursor: 'pointer',
-                     fontWeight: 'bold'
-                 }}>
-                   + Request
-                 </button>
+                 
+                 {isApproved ? (
+                    <button className="btn" disabled style={{
+                        backgroundColor: '#28a745', 
+                        color: 'white',
+                        border: 'none',
+                        padding: '8px 16px',
+                        borderRadius: '4px',
+                        opacity: 0.8,
+                        cursor: 'not-allowed'
+                    }}>
+                        <i className="fas fa-check-circle"></i> Enrolled
+                    </button>
+                 ) : isPending ? (
+                    <button className="btn" disabled style={{
+                        backgroundColor: '#ffc107', 
+                        color: '#333',
+                        border: 'none',
+                        padding: '8px 16px',
+                        borderRadius: '4px',
+                        cursor: 'not-allowed',
+                        fontWeight: 'bold'
+                    }}>
+                        <i className="fas fa-clock"></i> Pending...
+                    </button>
+                 ) : (
+                    <button className="btn" onClick={() => handleRequestClick(course)} style={{
+                        backgroundColor: isRejected ? '#dc3545' : '#f72585', // Red if rejected (try again), Pink if new
+                        color: 'white',
+                        border: 'none',
+                        padding: '8px 16px',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontWeight: 'bold'
+                    }}>
+                        {isRejected ? 'Request Again' : '+ Request'}
+                    </button>
+                 )}
+
                </div>
             </div>
           );
@@ -136,7 +177,8 @@ const StudentCourses = ({ user }) => {
                 </span>
              </div>
              <p style={{fontSize:'0.9rem', color:'#666', margin: '5px 0'}}>Reason: {r.Reason}</p>
-             <small style={{color: '#999'}}>Date: {r.EnrolledAt ? new Date(r.EnrolledAt).toLocaleDateString() : 'N/A'}</small>
+             {/* Note: EnrolledAt might be undefined if removed from backend, so we check first */}
+             {r.EnrolledAt && <small style={{color: '#999'}}>Date: {new Date(r.EnrolledAt).toLocaleDateString()}</small>}
            </div>
         ))}
       </div>
@@ -149,7 +191,7 @@ const StudentCourses = ({ user }) => {
                 <span className="close" onClick={() => setModalOpen(false)}>&times;</span>
             </div>
             <div className="modal-body">
-                <p>You are about to request registration for <strong>{selectedCourse?.CourseID}</strong>.</p>
+                <p>You are about to request registration for <strong>{selectedCourse?.CourseID || selectedCourse?.Id}</strong>.</p>
                 <div className="form-group">
                     <label>Reason for Request</label>
                     <textarea className="form-control" rows="3" value={reason} onChange={e => setReason(e.target.value)} placeholder="Optional: Explain why you want to take this course..."></textarea>

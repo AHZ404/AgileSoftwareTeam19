@@ -6,31 +6,37 @@ const AdvisorBookings = ({ currentUser }) => {
 
   const loadData = async () => {
     try {
-      // 1. Fetch All Enrollments
-      const enrollmentsRes = await fetch('http://localhost:5000/api/enrollments');
-      const enrollmentsData = await enrollmentsRes.json() || [];
+      // 1. Fetch from the Bookings View
+      const bookingsRes = await fetch('http://localhost:5000/api/bookings');
+      const bookingsData = await bookingsRes.json() || [];
       
-      // --- FIX: Convert SQL PascalCase to camelCase ---
-      const cleanEnrollments = enrollmentsData.map(e => ({
-          id: e.Id,
-          studentId: e.StudentId,
-          courseId: e.CourseId,
-          status: e.Status || 'pending', // Default to pending if null
-          reason: e.Reason
+      // 2. Map the SQL 'View_Bookings' columns
+      const cleanBookings = bookingsData.map(b => ({
+          id: b.BookingID,
+          studentId: b.RequesterID,
+          classroom: b.Room,
+          bookingDate: b.Date,
+          timeSlot: b.Time,
+          status: (b.Status || 'pending').toLowerCase(), // Normalize to lowercase just in case
+          reason: b.Purpose
       }));
 
-      // 2. Fetch User Info (To show names instead of IDs)
+      // --- FILTER: Hide 'approved' bookings ---
+      // We only keep bookings that are NOT approved (shows pending and rejected)
+      // If you want to hide rejected ones too, use: b.status === 'pending'
+      const activeBookings = cleanBookings.filter(b => b.status !== 'approved');
+
+      // 3. Fetch User Info
       const entitiesRes = await fetch('http://localhost:5000/api/entities');
       const entitiesData = await entitiesRes.json() || [];
       
       const uMap = {};
       entitiesData.forEach(e => {
-        // Backend /api/entities already handles lowercase conversion, so this is safe
         uMap[e.id] = e;
       });
       setUserMap(uMap);
       
-      setBookings(cleanEnrollments);
+      setBookings(activeBookings);
 
     } catch (err) {
       console.error('Error loading bookings:', err);
@@ -44,14 +50,14 @@ const AdvisorBookings = ({ currentUser }) => {
   const handleStatusChange = async (id, newStatus) => {
     if (confirm(`${newStatus === 'approved' ? 'Approve' : 'Reject'} this booking?`)) {
       try {
-        const res = await fetch(`http://localhost:5000/api/enrollments/${id}`, {
+        const res = await fetch(`http://localhost:5000/api/bookings/${id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: newStatus })
         });
         
         if (res.ok) {
-            loadData(); // Refresh list to see the green/red status change
+            loadData(); // This triggers a reload, and the approved item will disappear
         } else {
             alert("Failed to update status");
         }
@@ -61,47 +67,45 @@ const AdvisorBookings = ({ currentUser }) => {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (confirm('Cancel this booking?')) {
-      try {
-        await fetch(`http://localhost:5000/api/enrollments/${id}`, { method: 'DELETE' });
-        loadData();
-      } catch (err) {
-        console.error('Error deleting booking:', err);
-      }
-    }
-  };
-
   if (bookings.length === 0) {
-    return <p className="placeholder-text">No bookings found in database.</p>;
+    return <p className="placeholder-text">No pending bookings found.</p>;
   }
 
   return (
     <div className="requests-grid">
       {bookings.map((booking) => {
-        // Safe User Lookup
-        const user = userMap[booking.studentId] || { firstName: 'Unknown', lastName: `(${booking.studentId})` };
-        const isOwnBooking = booking.studentId === currentUser.id;
+        const user = userMap[booking.studentId] || { firstName: 'User', lastName: booking.studentId };
+        
+        const dateDisplay = booking.bookingDate 
+          ? new Date(booking.bookingDate).toLocaleDateString() 
+          : 'Date Not Set';
 
         return (
           <div key={booking.id} className="request-item" style={{
-              borderLeft: `5px solid ${booking.status === 'approved' ? 'green' : booking.status === 'rejected' ? 'red' : 'orange'}`
+              borderLeft: `5px solid ${booking.status === 'rejected' ? 'red' : 'orange'}`
           }}>
             <div className="request-header">
               <div className="request-info">
-                <h4>Course: {booking.courseId}</h4>
+                <h4>📍 {booking.classroom || 'Unknown Room'}</h4>
+                
+                <div className="booking-time-details" style={{ fontSize: '0.95em', color: '#444', marginTop: '4px', marginBottom: '8px' }}>
+                    <div style={{ fontWeight: 'bold' }}>📅 {dateDisplay}</div>
+                    <div style={{ color: '#007bff' }}>⏰ {booking.timeSlot || 'All Day'}</div>
+                </div>
+
                 <div className="request-meta">
                   Requested by: <strong>{user.firstName} {user.lastName}</strong>
                 </div>
               </div>
+              
               <span className={`request-status status-${booking.status}`}>
                 {booking.status.toUpperCase()}
               </span>
             </div>
-            <p className="request-reason"><strong>Reason:</strong> {booking.reason || 'N/A'}</p>
+            
+            <p className="request-reason"><strong>Purpose:</strong> {booking.reason || 'N/A'}</p>
             
             <div className="request-actions">
-               {/* Advisors can Approve/Reject student requests */}
                <button className="btn btn-success" onClick={() => handleStatusChange(booking.id, 'approved')}>Approve</button>
                <button className="btn btn-danger" onClick={() => handleStatusChange(booking.id, 'rejected')}>Reject</button>
             </div>

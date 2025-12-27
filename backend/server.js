@@ -127,7 +127,33 @@ app.post('/api/entity', async (req, res) => {
         res.status(500).json({ success: false, message: err.message });
     }
 });
-
+// GET /api/entities
+// Returns simple ID/Name pairs for lookup maps (Optimized)
+app.get('/api/entities', async (req, res) => {
+    try {
+        const pool = await poolPromise;
+        
+        // We use a VIEW or a complex query to get flat data for the frontend map
+        // This query pivots the EAV data to give you simple columns
+        const query = `
+            SELECT 
+                E.ID as id,
+                MAX(CASE WHEN A.AttributeName = 'FirstName' THEN V.ValueText END) as firstName,
+                MAX(CASE WHEN A.AttributeName = 'LastName' THEN V.ValueText END) as lastName,
+                MAX(CASE WHEN A.AttributeName = 'Role' THEN V.ValueText END) as role
+            FROM Entities E
+            JOIN EntityValues V ON E.ID = V.EntityId
+            JOIN Attributes A ON V.AttributeId = A.Id
+            GROUP BY E.ID
+        `;
+        
+        const result = await pool.request().query(query);
+        res.json(result.recordset);
+    } catch (err) {
+        console.error('Error fetching entities map:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
 // --- GET ENTITY (Reconstructs Object with Binary handling) ---
 app.get('/api/entity/:id', async (req, res) => {
     try {
@@ -182,6 +208,50 @@ app.get('/api/bookings', async (req, res) => {
         res.json(result.recordset);
     } catch (err) { res.status(500).send(err.message); }
 });
+// PUT: Update Booking Status (Approve/Reject)
+// PUT: Update Booking Status (Approve/Reject)
+// PUT: Update Booking Status (Approve/Reject)
+app.put('/api/bookings/:id', async (req, res) => {
+    const { id } = req.params; 
+    const { status } = req.body; 
+
+    if (!status) return res.status(400).json({ error: 'Status is required' });
+
+    try {
+        const pool = await poolPromise; 
+
+        // 🛑 THIS IS THE CRITICAL PART 🛑
+        // You MUST have this subquery to find the correct AttributeID.
+        // CHECK YOUR DATABASE: Is the column named 'AttributeName' or 'Name'?
+       const query = `
+            UPDATE EntityValues
+            SET ValueText = @Status
+            WHERE EntityID = @EntityID
+            AND AttributeID = (
+                SELECT Id 
+                FROM Attributes 
+                WHERE AttributeName = 'BookingStatus' 
+            )
+        `;
+
+        const result = await pool.request()
+            .input('Status', sql.NVarChar, status)
+            .input('EntityID', sql.NVarChar, id)
+            .query(query);
+
+        if (result.rowsAffected[0] > 0) {
+            res.json({ success: true, message: `Booking status updated to ${status}` });
+        } else {
+            // If you see this error, it means the code IS safe, but it couldn't find the row.
+            // This is better than overwriting data!
+            res.status(404).json({ error: 'BookingStatus attribute not found. No updates made.' });
+        }
+
+    } catch (err) {
+        console.error('Error updating booking:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // --- ASSIGNMENTS (Filtered by Course) ---
 app.get('/api/assignments/:courseId', async (req, res) => {
@@ -207,26 +277,86 @@ app.get('/api/materials/:courseId', async (req, res) => {
 app.get('/api/requests/:studentId', async (req, res) => {
     try {
         const pool = await poolPromise;
+        // FIX: Removed 'E.EnrolledAt' because that column doesn't exist
         const result = await pool.request().input('sid', sql.VarChar, req.params.studentId)
-            .query(`SELECT E.Id, E.CourseId, E.Status, E.Reason, C.Title, E.EnrolledAt FROM Enrollments E JOIN View_Courses C ON E.CourseId = C.CourseID WHERE E.StudentId = @sid`);
+            .query(`
+                SELECT E.Id, E.CourseId, E.Status, E.Reason, C.Title 
+                FROM Enrollments E 
+                JOIN View_Courses C ON E.CourseId = C.CourseID 
+                WHERE E.StudentId = @sid
+            `);
         res.json(result.recordset);
-    } catch (err) { res.status(500).send(err.message); }
+    } catch (err) { 
+        console.error("SQL Error in /api/requests:", err); // Log the actual error
+        res.status(500).send(err.message); 
+    }
 });
-
-// --- SUBMIT COURSE REQUEST ---
-app.post('/api/course-request', async (req, res) => {
-    const { studentId, courseId, reason } = req.body;
+// GET /api/my-courses/:id
+// Fetches ONLY 'approved' courses for the Student Dashboard
+// GET /api/my-courses/:id
+app.get('/api/my-courses/:id', async (req, res) => {
+    const { id } = req.params;
     try {
         const pool = await poolPromise;
-        const check = await pool.request().input('sid', sql.VarChar, studentId).input('cid', sql.VarChar, courseId)
-            .query('SELECT * FROM Enrollments WHERE StudentId = @sid AND CourseId = @cid');
+        
+        // FIX: Removed 'C.Location' and 'C.Color' to prevent SQL Crash
+        // We only select columns we KNOW exist in your View_Courses
+        const query = `
+            SELECT 
+                C.CourseID, 
+                C.Title, 
+                C.Credits, 
+                C.ScheduleDay, 
+                C.ScheduleTime, 
+                C.InstructorID
+            FROM Enrollments E
+            JOIN View_Courses C ON E.CourseId = C.CourseID
+            WHERE E.StudentId = @id AND LOWER(E.Status) = 'approved'
+        `;
+        
+        const result = await pool.request()
+            .input('id', sql.NVarChar, id)
+            .query(query);
 
-        if (check.recordset.length > 0) return res.status(400).json({ message: 'Request already exists' });
+        res.json(result.recordset);
+    } catch (err) {
+        console.error('SQL Error in /api/my-courses:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+// --- SUBMIT COURSE REQUEST ---
+// POST /api/course-request
+// POST /api/course-request
+// POST /api/course-request
+app.post('/api/course-request', async (req, res) => {
+    const { studentId, courseId, reason } = req.body;
+    
+    // We don't need a random ID if your Enrollments table has an auto-incrementing ID.
+    // If it doesn't, we can generate one. Assuming standard structure:
+    const enrollmentDate = new Date().toISOString();
 
-        await pool.request().input('sid', sql.VarChar, studentId).input('cid', sql.VarChar, courseId).input('reason', sql.VarChar, reason)
-            .query(`INSERT INTO Enrollments (StudentId, CourseId, Status, Reason, EnrolledAt) VALUES (@sid, @cid, 'pending', @reason, GETDATE())`);
+    try {
+        const pool = await poolPromise;
+        
+        // DIRECT INSERT INTO ENROLLMENTS TABLE
+        // NOTE: Please ensure these column names match your dbo.Enrollments table columns!
+        const query = `
+            INSERT INTO Enrollments (StudentId, CourseId, Status, Reason)
+            VALUES (@studentId, @courseId, 'pending', @reason)
+        `;
+        
+        await pool.request()
+            .input('studentId', sql.NVarChar, studentId) // or sql.Int if your IDs are numbers
+            .input('courseId', sql.NVarChar, courseId)
+            .input('reason', sql.NVarChar, reason || '')
+            .query(query);
+
         res.json({ success: true, message: 'Request submitted successfully' });
-    } catch (err) { res.status(500).send(err.message); }
+
+    } catch (err) {
+        console.error('SQL Error:', err);
+        res.status(500).json({ message: 'Database error: ' + err.message });
+    }
 });
 
 // ==========================================
@@ -237,20 +367,30 @@ app.post('/api/course-request', async (req, res) => {
 app.get('/api/enrollments', async (req, res) => {
     try {
         const pool = await poolPromise;
-        const result = await pool.request().query('SELECT Id, StudentId, CourseId, Status, Reason, EnrolledAt FROM Enrollments');
+        const result = await pool.request().query("SELECT * FROM Enrollments");
         res.json(result.recordset);
-    } catch (err) { res.status(500).json({ message: err.message }); }
+    } catch (err) {
+        console.error('Error fetching enrollments:', err);
+        res.status(500).json({ error: err.message });
+    }
 });
-
 // --- UPDATE ENROLLMENT STATUS (Approve/Reject) ---
-app.put('/api/enrollments/:enrollmentId', async (req, res) => {
-    const { status } = req.body;
+app.put('/api/enrollments/:id', async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body; // Expects "approved" or "rejected"
+
     try {
         const pool = await poolPromise;
-        await pool.request().input('id', sql.Int, req.params.enrollmentId).input('status', sql.VarChar, status)
-            .query('UPDATE Enrollments SET Status = @status WHERE Id = @id');
-        res.json({ success: true, message: 'Status updated' });
-    } catch (err) { res.status(500).json({ message: err.message }); }
+        await pool.request()
+            .input('id', sql.Int, id)
+            .input('status', sql.NVarChar, status)
+            .query("UPDATE Enrollments SET Status = @status WHERE Id = @id");
+            
+        res.json({ success: true, message: `Request ${status}` });
+    } catch (err) {
+        console.error('Error updating enrollment:', err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // --- DELETE ENROLLMENT ---

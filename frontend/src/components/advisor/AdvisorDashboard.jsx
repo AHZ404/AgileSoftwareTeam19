@@ -13,27 +13,34 @@ const AdvisorDashboard = () => {
 
   const loadStats = async () => {
     try {
-      // 1. Fetch Students (Entities)
-      const entitiesRes = await fetch('http://localhost:5000/api/entities/student');
-      const studentsData = await entitiesRes.json() || [];
-      const studentCount = studentsData.length;
-      
-      // 2. Fetch Enrollments (For Pending Requests)
-      const enrollmentsRes = await fetch('http://localhost:5000/api/enrollments');
+      // Use Promise.all to fetch everything in parallel (Faster)
+      const [entitiesRes, enrollmentsRes, bookingsRes] = await Promise.all([
+        fetch('http://localhost:5000/api/entities'),    // 1. Get All Users
+        fetch('http://localhost:5000/api/enrollments'), // 2. Get All Enrollments
+        fetch('http://localhost:5000/api/bookings')     // 3. Get All Bookings
+      ]);
+
+      const entitiesData = await entitiesRes.json() || [];
       const enrollmentsData = await enrollmentsRes.json() || [];
-      
-      // FIX: Use Capital 'S' for Status (SQL returns PascalCase)
-      const pendingCount = enrollmentsData.filter(e => (e.Status || e.status) === 'pending').length;
-      
-      // 3. Fetch Classroom Bookings (Actual Room Reservations)
-      // If "Classroom Bookings" refers to room reservations, use the /bookings API we made
-      const bookingsRes = await fetch('http://localhost:5000/api/bookings');
       const bookingsData = await bookingsRes.json() || [];
 
+      // --- CALCULATIONS ---
+
+      // 1. Calculate Managed Students
+      // We filter the generic entities list for role 'student'
+      const studentCount = entitiesData.filter(u => (u.role || '').toLowerCase() === 'student').length;
+
+      // 2. Calculate Pending Requests
+      // We check for 'Status' (PascalCase from DB) and ensure case-insensitivity
+      const pendingCount = enrollmentsData.filter(e => 
+        (e.Status || e.status || '').toLowerCase() === 'pending'
+      ).length;
+
+      // 3. Set State
       setStats({
         pendingRequests: pendingCount,
         totalStudents: studentCount,
-        totalBookings: bookingsData.length // Or use enrollmentsData.length if you meant Course Registrations
+        totalBookings: bookingsData.length
       });
 
     } catch (err) {
@@ -44,6 +51,7 @@ const AdvisorDashboard = () => {
   return (
     <div id="advisor-dashboard-section" className="content-section">
       <div className="dashboard-grid">
+        
         {/* Pending Requests Card */}
         <div className="stat-card warning">
           <i className="fas fa-inbox"></i>
@@ -70,6 +78,7 @@ const AdvisorDashboard = () => {
             <span className="stat-value">{stats.totalStudents}</span>
           </div>
         </div>
+
       </div>
     </div>
   );

@@ -5,12 +5,12 @@ const StudentDashboard = ({ user, navigateTo }) => {
   const [enrolledCourses, setEnrolledCourses] = useState([]);
   const [availableCourses, setAvailableCourses] = useState([]);
   const [myRequests, setMyRequests] = useState([]);
-  const [instructorMap, setInstructorMap] = useState({}); // Stores names like { 'INS001': 'Dr. Smith' }
+  const [instructorMap, setInstructorMap] = useState({});
 
   // Modal State
   const [materialsModalOpen, setMaterialsModalOpen] = useState(false);
   const [selectedCourseMaterials, setSelectedCourseMaterials] = useState(null);
-  const [courseMaterialsList, setCourseMaterialsList] = useState([]); // Stores actual files
+  const [courseMaterialsList, setCourseMaterialsList] = useState([]);
 
   // Request Modal
   const [requestModalOpen, setRequestModalOpen] = useState(false);
@@ -18,82 +18,109 @@ const StudentDashboard = ({ user, navigateTo }) => {
   const [requestReason, setRequestReason] = useState('');
 
   useEffect(() => {
-    loadData();
+    if (user && user.id) {
+        loadData();
+    }
   }, [user.id]);
 
   const loadData = async () => {
     try {
-      // 1. Fetch Enrolled Courses
-      const myCoursesRes = await fetch(`http://localhost:5000/api/my-courses/${user.id}`);
+      console.log("🔄 Loading Dashboard Data...");
+
+      // 1. Fetch ALL data in parallel
+      const [myCoursesRes, allCoursesRes, requestsRes] = await Promise.all([
+        fetch(`http://localhost:5000/api/my-courses/${user.id}`), // Approved Courses
+        fetch('http://localhost:5000/api/courses'),               // All Courses
+        fetch(`http://localhost:5000/api/requests/${user.id}`)    // My Requests
+      ]);
+
       const myCoursesData = await myCoursesRes.json() || [];
-      
-      // Normalize Enrolled Data
+      const allCoursesData = await allCoursesRes.json() || [];
+      const requestsData = await requestsRes.json() || [];
+
+      console.log("✅ Data Received:", { myCoursesData, allCoursesData, requestsData });
+
+      // 2. Process Enrolled Courses (Robust Mapping)
+      // Handles CourseID, CourseId, or Id
       const enrolled = myCoursesData.map(c => ({
-          id: c.CourseID,
-          title: c.Title,
+          id: c.CourseID || c.CourseId || c.Id, 
+          title: c.Title || c.CourseTitle || 'Untitled Course',
           credits: c.Credits,
-          instructorId: c.InstructorID,
-          color: c.Color,
-          schedule: `${c.ScheduleDay} ${c.ScheduleTime}`
+          instructorId: c.InstructorID || c.InstructorId,
+          color: c.Color || '#4361ee', // Default color if missing
+          schedule: c.ScheduleDay ? `${c.ScheduleDay} ${c.ScheduleTime}` : 'TBA'
       }));
       setEnrolledCourses(enrolled);
 
-      // 2. Fetch All Available Courses
-      const allCoursesRes = await fetch('http://localhost:5000/api/courses');
-      const allCoursesData = await allCoursesRes.json() || [];
+      // 3. Process Requests
+      const processedRequests = requestsData.map(r => {
+          // Find title if missing
+          const rId = r.CourseId || r.CourseID;
+          const courseInfo = allCoursesData.find(c => (c.CourseID || c.Id) === rId);
+          return {
+              ...r,
+              // Ensure we have a CourseId property for filtering later
+              CourseId: rId, 
+              Title: r.Title || (courseInfo ? (courseInfo.Title || courseInfo.CourseTitle) : 'Unknown Course')
+          };
+      });
+      setMyRequests(processedRequests);
+
+      // 4. Process Available Courses
+      // Logic: Start with ALL courses, remove Enrolled, remove Pending
+      const enrolledIds = new Set(enrolled.map(c => c.id));
+      const pendingIds = new Set(processedRequests.filter(r => (r.Status || '').toLowerCase() === 'pending').map(r => r.CourseId));
       
-      // Filter out courses I am already enrolled in
-      const enrolledIds = enrolled.map(c => c.id);
       const available = allCoursesData
-        .filter(c => !enrolledIds.includes(c.CourseID))
+        .filter(c => {
+            const cId = c.CourseID || c.Id;
+            return !enrolledIds.has(cId) && !pendingIds.has(cId);
+        })
         .map(c => ({
-            id: c.CourseID,
-            title: c.Title,
+            id: c.CourseID || c.Id,
+            title: c.Title || c.CourseTitle,
             credits: c.Credits,
-            instructorId: c.InstructorID,
-            schedule: `${c.ScheduleDay} ${c.ScheduleTime}`,
+            instructorId: c.InstructorID || c.InstructorId,
+            schedule: c.ScheduleDay ? `${c.ScheduleDay} ${c.ScheduleTime}` : 'TBA',
             location: c.Location
         }));
       setAvailableCourses(available);
 
-      // 3. Fetch My Requests
-      const requestsRes = await fetch(`http://localhost:5000/api/requests/${user.id}`);
-      const requestsData = await requestsRes.json() || [];
-      setMyRequests(requestsData);
-
-      // 4. Calculate Stats
+      // 5. Calculate Stats
       setStats({
         enrolled: enrolled.length,
-        pending: requestsData.filter(r => r.Status === 'pending').length,
-        completed: 0, // Placeholder
-        gpa: 3.8 // Placeholder (Calculated from Grades later)
+        pending: processedRequests.filter(r => (r.Status || '').toLowerCase() === 'pending').length,
+        completed: 0, 
+        gpa: 3.8 
       });
 
-      // 5. Fetch Instructor Names (Optimization: Only fetch unique IDs)
-      const instructorIds = [...new Set([...enrolled, ...available].map(c => c.instructorId).filter(id => id))];
+      // 6. Fetch Instructor Names
+      const uniqueInstructorIds = [...new Set([...enrolled, ...available].map(c => c.instructorId).filter(id => id))];
       const newInstructorMap = {};
       
-      await Promise.all(instructorIds.map(async (instId) => {
+      await Promise.all(uniqueInstructorIds.map(async (instId) => {
           try {
               const res = await fetch(`http://localhost:5000/api/entity/${instId}`);
-              const data = await res.json();
-              newInstructorMap[instId] = `${data.firstName} ${data.lastName}`;
+              if (res.ok) {
+                  const data = await res.json();
+                  newInstructorMap[instId] = `${data.firstName || ''} ${data.lastName || ''}`;
+              }
           } catch(e) { 
-              newInstructorMap[instId] = "Unknown Instructor"; 
+              // Silent fail for names
           }
       }));
       setInstructorMap(newInstructorMap);
 
     } catch (err) {
-      console.error('Error loading dashboard:', err);
+      console.error('❌ Error loading dashboard:', err);
     }
   };
 
-  // --- Materials Handlers ---
+  // --- Handlers ---
   const openMaterialsModal = async (course) => {
     setSelectedCourseMaterials(course);
     setMaterialsModalOpen(true);
-    setCourseMaterialsList([]); // Reset
+    setCourseMaterialsList([]); 
 
     try {
         const res = await fetch(`http://localhost:5000/api/materials/${course.id}`);
@@ -105,18 +132,16 @@ const StudentDashboard = ({ user, navigateTo }) => {
   };
 
   const downloadFile = (fileName, fileData) => {
-      // If we have data, download it. If not, alert (demo)
       if(fileData) {
           const link = document.createElement('a');
           link.href = fileData;
           link.download = fileName;
           link.click();
       } else {
-          alert("Downloading..."); // Real app would fetch blob
+          alert("Downloading..."); 
       }
   };
 
-  // --- Request Handlers ---
   const openRequestModal = (course) => {
     setSelectedRequestCourse(course);
     setRequestReason('');
@@ -131,7 +156,7 @@ const StudentDashboard = ({ user, navigateTo }) => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 studentId: user.id,
-                courseId: selectedRequestCourse.id, // ID from our normalized object
+                courseId: selectedRequestCourse.id, 
                 reason: requestReason || 'No reason provided'
             })
         });
@@ -139,9 +164,9 @@ const StudentDashboard = ({ user, navigateTo }) => {
         if (response.ok) {
             alert('Request Submitted Successfully!');
             setRequestModalOpen(false);
-            loadData(); // Refresh lists
+            loadData(); // Refresh immediately
         } else {
-            alert('Error submitting request. You might already have a pending request.');
+            alert('Error submitting request.');
         }
     } catch (e) {
         alert('Error: ' + e.message);
@@ -151,7 +176,6 @@ const StudentDashboard = ({ user, navigateTo }) => {
   return (
     <div id="dashboard-section" className="content-section">
       <div className="dashboard-grid">
-        {/* Stats Cards */}
         <div className="stat-card primary">
           <i className="fas fa-book"></i>
           <div className="stat-info">
@@ -183,13 +207,12 @@ const StudentDashboard = ({ user, navigateTo }) => {
       </div>
 
       <div className="widgets-container">
-        
         {/* Enrolled Courses */}
         <div className="widget large">
           <h3 style={{color: 'var(--secondary)', borderBottom: '2px solid #e9ecef', paddingBottom: '10px'}}>Current Courses</h3>
           <div className="courses-grid">
              {enrolledCourses.length === 0 ? <p className="placeholder-text">Not enrolled in any courses.</p> : enrolledCourses.map(c => (
-                <div key={c.id} className="course-card" style={{borderTop: `4px solid ${c.color || 'var(--primary)'}`}}>
+                <div key={c.id} className="course-card" style={{borderTop: `4px solid ${c.color}`}}>
                    <h4 style={{margin: '0 0 5px 0'}}>{c.id}: {c.title}</h4>
                    <p style={{fontSize: '0.9rem', color: '#666', margin: '0 0 5px 0'}}>Credits: {c.credits}</p>
                    <p style={{fontSize: '0.9rem', color: '#4361ee', fontWeight:'bold'}}>
@@ -205,7 +228,7 @@ const StudentDashboard = ({ user, navigateTo }) => {
           </div>
         </div>
 
-        {/* Upcoming Requests */}
+        {/* Recent Requests */}
         <div className="widget small">
            <h3 style={{color: 'var(--secondary)', borderBottom: '2px solid #e9ecef', paddingBottom: '10px'}}>Recent Requests</h3>
            <div className="assignments-list">
@@ -213,21 +236,20 @@ const StudentDashboard = ({ user, navigateTo }) => {
                <div key={r.Id} className="assignment-item" style={{borderLeft: `4px solid ${r.Status === 'pending' ? 'orange' : r.Status === 'approved' ? 'green' : 'red'}`}}>
                  <div className="assignment-name">
                    {r.CourseId}: {r.Title}
-                   <div style={{fontSize:'0.8rem', color:'#666'}}>{new Date(r.EnrolledAt).toLocaleDateString()}</div>
+                   <div style={{fontSize:'0.8rem', color:'#666'}}>{r.EnrolledAt ? new Date(r.EnrolledAt).toLocaleDateString() : 'N/A'}</div>
                  </div>
                  <div style={{textTransform:'uppercase', fontSize:'0.75rem', fontWeight:'bold'}}>{r.Status}</div>
                </div>
              ))}
            </div>
         </div>
-
       </div>
 
-      {/* Available Courses Row */}
+      {/* Available Courses */}
       <div className="widget large" style={{marginTop:'30px'}}>
          <h3 style={{color: 'var(--secondary)', borderBottom: '2px solid #e9ecef', paddingBottom: '10px'}}>Available Courses</h3>
          <div className="courses-grid">
-            {availableCourses.length === 0 ? <p className="placeholder-text">No other courses available.</p> : availableCourses.slice(0, 4).map(c => (
+            {availableCourses.length === 0 ? <p className="placeholder-text">No new courses available.</p> : availableCourses.slice(0, 4).map(c => (
                <div key={c.id} className="course-card">
                   <div style={{display:'flex', justifyContent:'space-between'}}>
                       <h4 style={{margin:0}}>{c.id}: {c.title}</h4>
@@ -262,7 +284,6 @@ const StudentDashboard = ({ user, navigateTo }) => {
                                 <strong>{m.Title}</strong> <br/>
                                 <small>{m.Type}</small>
                             </div>
-                            {/* Pass null for fileData, let helper handle logic if needed */}
                             <button className="btn btn-success btn-sm" onClick={() => downloadFile(m.Title, null)}>Download</button>
                         </div>
                     ))
@@ -294,7 +315,6 @@ const StudentDashboard = ({ user, navigateTo }) => {
           </div>
         </div>
       )}
-
     </div>
   );
 };
